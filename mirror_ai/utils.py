@@ -28,9 +28,9 @@ class SharedResources:
         with self.lock:
             self.pipeline.refresh_latents()
 
-    def generate_frame(self, camera_frame, prompt):
+    def generate_frame(self, prompt, camera_frame):
         with self.lock:
-            return self.pipeline.generate(camera_frame, prompt)
+            return self.pipeline.generate(prompt, camera_frame)
         
 
 # Depth map utils

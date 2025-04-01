@@ -44,6 +44,9 @@ torch._inductor.config.conv_1x1_as_mm = True
 torch._inductor.config.coordinate_descent_tuning = True
 torch._inductor.config.epilogue_fusion = False
 torch._inductor.config.coordinate_descent_check_all_directions = True
+# # for the linear swaps
+# torch._inductor.config.force_fuse_int_mm_with_mul = True
+# torch._inductor.config.use_mixed_mm = True
 
 
 class ImagePipeline:
@@ -55,7 +58,7 @@ class ImagePipeline:
         self.generator = torch.Generator(device="cpu").manual_seed(config.SEED)
 
 
-    def load_pipeline(self):
+    def load(self):
         """Loads all models, configures the pipeline, applies optimizations, and warms up."""
         print("--- Starting Pipeline Loading Process ---")
 
@@ -266,7 +269,7 @@ class ImagePipeline:
             RuntimeError: If there's an error during inference.
         """
         if self.pipeline is None:
-            raise ValueError("Pipeline is not loaded. Call load_pipeline() first.")
+            raise ValueError("Pipeline is not loaded. Call load() first.")
 
         # Use configured defaults if not overridden
         steps = num_inference_steps if num_inference_steps is not None else config.N_STEPS

@@ -46,6 +46,8 @@ app, rt = fast_app(
 
 # create the pipeline
 pipeline = None #ImagePipeline()
+# pipeline.load()
+
 # create the shared resources
 shared_resources = SharedResources(pipeline)
 # grabs frames from the webcam
@@ -60,10 +62,10 @@ def get():
             Img(src="/static/logo.png", cls="image-fit"),
             id="image-container",
             cls="image-wrapper",
-            hx_ext="sse",
-            sse_connect="/generate",
-            hx_swap="innerHTML",
-            sse_swap="message",
+            # hx_ext="sse",
+            # sse_connect="/generate",
+            # hx_swap="innerHTML",
+            # sse_swap="message",
         ),
         
         # Controls Section - fixed height at bottom
@@ -76,9 +78,9 @@ def get():
                         cls="rounded-lg bg-secondary shadow-lg border",
                     ),
                     # P(app_name, cls="text-xl font-bold text-purple-700 mb"),
-                    Input(id="prompt", name="prompt", placeholder="Enter prompt here...", 
-                          cls="w-full p-2 border rounded"),
-                    Button("Generate", id="generate", type="button", cls=ButtonT.primary + ' border rounded-lg shadow-lg',
+                    Input(id="prompt", name="prompt", placeholder="What do you see?", 
+                          cls="w-full p-2 border rounded text-lg"),
+                    Button("Generate", id="generate", type="button", cls=ButtonT.primary + ' border text-xl rounded-lg shadow-lg',
                            hx_post="/set_prompt",
                            hx_swap="none", 
                            hx_include="#prompt"),
@@ -119,14 +121,14 @@ async def generate():
         # get the current frame from the webcam, and latest prompt
         camera_frame = video_streamer.get_current_frame()
         prompt = shared_resources.get_prompt()
-        
+
         # Ensure camera_frame is not None and prompt is available
         if camera_frame is None or prompt is None:
             await asyncio.sleep(0.1) # Avoid busy-waiting if resources aren't ready
             continue
 
         try:
-            frame = shared_resources.generate_frame(camera_frame, prompt)
+            frame = shared_resources.generate_frame(prompt, camera_frame)
 
             # Convert the processed frame (assuming PIL or convertible) to base64 JPEG
             img_byte_arr = BytesIO()

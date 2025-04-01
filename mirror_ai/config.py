@@ -8,7 +8,8 @@ SDXL_LIGHTNING_REPO_ID = "ByteDance/SDXL-Lightning"
 # ControlNet++ model repository
 CONTROLNET_MODEL_ID = "xinsir/controlnet-union-sdxl-1.0"
 
-SEED=12297829382473034410  # Random seed for reproducibility
+# Random seed for reproducibility
+SEED = 12297829382473034410 
 
 # --- Pipeline Configuration ---
 # Number of inference steps. MUST match the loaded UNet checkpoint (e.g., 2, 4, 8).
