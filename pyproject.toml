@@ -1,0 +1,26 @@
+[project]
+name = "mirror-ai"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "accelerate>=1.6.0",
+    "controlnet-aux>=0.0.9",
+    "diffusers>=0.32.2",
+    "fastcore>=1.8.0",
+    "ipykernel>=6.29.5",
+    "monsterui>=1.0.14",
+    "nbdev>=2.3.37",
+    "ninja>=1.11.1.4",
+    "opencv-python>=4.11.0.86",
+    "peft>=0.15.1",
+    "python-dotenv>=1.1.0",
+    "python-fasthtml>=0.12.9",
+    "torch>=2.6.0",
+    "torchao>=0.9.0",
+    "torchaudio>=2.6.0",
+    "torchvision>=0.21.0",
+    "transformers>=4.50.3",
+    "wheel>=0.45.1",
+]

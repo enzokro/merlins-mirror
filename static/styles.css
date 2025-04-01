@@ -1,0 +1,36 @@
+html, body { 
+    height: 100vh; 
+    margin: 0; 
+    padding: 0; 
+    overflow: hidden; 
+}
+.image-fit {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+.main-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-height: 100vh;
+    box-sizing: border-box;
+    padding: 0.5rem;
+}
+.image-wrapper {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 0.5rem;
+    background-color: white;
+    border-radius: 0.5rem;
+}
+.controls-wrapper {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    background-color: white;
+}
