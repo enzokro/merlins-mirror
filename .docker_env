@@ -1,0 +1,8 @@
+
+# Basic app parameters
+HOST=0.0.0.0
+PORT=10295
+WEBSOCKET_CORS="*"
+
+HF_HOME="/app/mirror_ai/models/"
+

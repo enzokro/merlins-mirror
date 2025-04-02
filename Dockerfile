@@ -47,8 +47,6 @@ WORKDIR /app
 # If only app code changes later, dependency installation won't rerun.
 COPY pyproject.toml uv.lock .python-version ./
 COPY .env ./
-COPY mirror_ai mirror_ai
-COPY main.py main.py
 
 # Install Python dependencies using uv.
 # This should install PyTorch, diffusers, stable-fast, and other core libraries
@@ -89,3 +87,14 @@ RUN apt-get update && apt-get install -y
 # RUN ubuntu-drivers devices && apt-fast install -y nvidia-570 && modprobe nvidia
 # RUN nvidia-smi
 RUN which nvcc
+
+# copy the project files
+COPY .docker_env .env
+COPY static static
+COPY main.py main.py
+COPY merlin.py merlin.py
+COPY mirror_ai mirror_ai
+
+
+# start the application
+CMD ["uv", "run", "python", "main.py"]

@@ -87,10 +87,10 @@ class ImagePipeline:
 
         # --- 3. Load ControlNet++ ---
         controlnet = []
-        for controlnet in config.CONTROLNETS:
-            print(f"Loading ControlNet ({controlnet})...")
+        for cnet in config.CONTROLNETS:
+            print(f"Loading ControlNet ({cnet})...")
             controlnet_model = ControlNetModel.from_pretrained(
-                controlnet,
+                cnet,
                 torch_dtype=config.DTYPE
             ).to(config.DEVICE)
             controlnet.append(controlnet_model)
