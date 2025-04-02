@@ -2,11 +2,11 @@
 
 ## Overview
 
-Merlin's Mirror is a live art installation thatcreates real-time AI videos from a webcam using a Stable Diffusion model.
+Merlin's Mirror is a live installation that creates real-time AI videos from a webcam using a Stable Diffusion model.
 
 ## Details
 
-Thanks to recent progress in Stable Diffusions models and hardware acceleration, it is now possible to generate images in real-time.
+Thanks to recent progress in Stable Diffusions models and hardware acceleration, it is now possible to generate AI images in real-time.
 
 We build on this to create Merlin's Mirror: a live art installation that transforms the world in front of you. It's been hosted at the following places in NYC:
 - Merlin's Place
