@@ -257,10 +257,10 @@ class ImagePipeline:
                     num_inference_steps=steps,
 
                     # MOVING OVER VALUES FROM BEFORE
-                    controlnet_conditioning_scale=0.5,
-                    control_guidance_start=0.0,
+                    controlnet_conditioning_scale=1.0,
+                    control_guidance_start=0.5,
                     control_guidance_end=1.0,
-                    strength=0.75,
+                    strength=0.5,
                     guidance_scale=0,
 
 
