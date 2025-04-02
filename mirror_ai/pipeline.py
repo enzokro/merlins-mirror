@@ -99,8 +99,8 @@ class ImagePipeline:
 
         # --- 4. Create the Full Pipeline with Injected UNet and ControlNet ---
         print("Instantiating StableDiffusionXLPipeline...")
-        pipeline = StableDiffusionXLPipeline.from_pretrained(
-        # pipeline = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(
+        # pipeline = StableDiffusionXLPipeline.from_pretrained(
+        pipeline = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(
             config.SDXL_BASE_MODEL_ID,
             unet=unet,                  # Inject the loaded Lightning UNet
             controlnet=controlnet,  # Inject the loaded ControlNet
