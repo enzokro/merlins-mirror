@@ -10,6 +10,7 @@ from diffusers import (
     AutoencoderKL,
 )
 from huggingface_hub import hf_hub_download
+from diffusers.utils.torch_utils import randn_tensor
 from safetensors.torch import load_file
 from torchao.quantization import swap_conv2d_1x1_to_linear
 # from torchao.quantization import apply_dynamic_quant
@@ -127,7 +128,7 @@ class ImagePipeline:
         batch_size = 1
         num_channels_latents = self.pipeline.unet.config.in_channels
         self.latents_shape = (batch_size, num_channels_latents, config.DEFAULT_IMAGE_HEIGHT // self.pipeline.vae_scale_factor, config.DEFAULT_IMAGE_WIDTH // self.pipeline.vae_scale_factor)
-        self.latents = self.refresh_latents()
+        self.refresh_latents()
 
         # --- 7. Apply speedups and warmup the model ---
         self.pipeline.set_progress_bar_config(disable=True)
@@ -278,8 +279,8 @@ class ImagePipeline:
         return self.latents.clone()
 
     def refresh_latents(self):
-        self.latents = torch.randn(self.latents_shape, generator=self.generator, device=config.DEVICE, dtype=config.DTYPE)
-        return self.latents
+        # self.latents = torch.randn(self.latents_shape, generator=self.generator, device=config.DEVICE, dtype=config.DTYPE)
+        self.latents = randn_tensor(self.latents_shape, generator=self.generator, device=config.DEVICE, dtype=config.DTYPE)
     
     # def _apply_stable_fast(self):
     #     """Applies Stable-Fast compilation if available and configured."""
