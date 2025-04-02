@@ -7,10 +7,10 @@ import asyncio
 import signal
 import multiprocessing as mp
 from dotenv import load_dotenv
-import subprocess
 
 from merlin import go_merlin
 from mirror_ai import config
+from mirror_ai.profiling import start_profiling, stop_profiling
 
 # load and set the environment variables
 load_dotenv()
@@ -67,40 +67,11 @@ async def startup():
     merlin.start()
 
     # --- Start py-spy profiling ---
-    try:
-        main_pid = os.getpid()
-        merlin_pid = merlin.pid
-        if merlin_pid:
-            print(f"Starting profiling. Main PID: {main_pid}, Merlin PID: {merlin_pid}")
-            main_profile_file = "main_profile.svg"
-            merlin_profile_file = "merlin_profile.svg"
-            
-            # Ensure previous profiles are removed if they exist
-            for f in [main_profile_file, merlin_profile_file]:
-                if os.path.exists(f):
-                    os.remove(f)
-
-            py_spy_path = "py-spy" # Assumes py-spy is in PATH
-
-            py_spy_main_proc = subprocess.Popen(
-                [py_spy_path, "record", "-o", main_profile_file, "--pid", str(main_pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
-            )
-            py_spy_merlin_proc = subprocess.Popen(
-                [py_spy_path, "record", "-o", merlin_profile_file, "--pid", str(merlin_pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
-            )
-            print(f"py-spy recording started for both processes. Profiles will be saved to '{main_profile_file}' and '{merlin_profile_file}' on exit.")
-        else:
-            print("Warning: Could not get Merlin PID. Profiling for Merlin process skipped.")
-    except FileNotFoundError:
-        print("Error: 'py-spy' command not found. Please install py-spy (`pip install py-spy`) and ensure it's in your PATH.")
-        py_spy_main_proc = None
-        py_spy_merlin_proc = None
-    except Exception as e:
-        print(f"Error starting py-spy: {e}")
-        py_spy_main_proc = None
-        py_spy_merlin_proc = None
+    main_pid = os.getpid()
+    merlin_pid = merlin.pid
+    # Wait a tiny bit for the process to potentially initialize fully before profiling
+    await asyncio.sleep(0.5)
+    py_spy_main_proc, py_spy_merlin_proc = start_profiling(main_pid, merlin_pid)
     # --- End py-spy profiling ---
 
     asyncio.create_task(poll_result_queue(result_queue, async_queue, shutdown_event))
@@ -222,37 +193,7 @@ def signal_handler(sig, frame):
     print("Shutting down...")
 
     # --- Stop py-spy profiling ---
-    print("Stopping py-spy recording...")
-    stopped_cleanly = True
-    for proc, name in [(py_spy_main_proc, "main"), (py_spy_merlin_proc, "merlin")]:
-        if proc and proc.poll() is None: # Check if process exists and is running
-            try:
-                # Check for errors during py-spy execution
-                stderr_output = proc.stderr.read().decode()
-                if stderr_output:
-                    print(f"py-spy ({name}) stderr:
-{stderr_output}")
-
-                proc.send_signal(signal.SIGINT) # Ask py-spy to finalize the file
-                proc.wait(timeout=5) # Wait for it to save
-                print(f"py-spy ({name}) process stopped.")
-            except subprocess.TimeoutExpired:
-                print(f"Warning: py-spy ({name}) did not stop gracefully after 5s. Forcing termination.")
-                proc.terminate()
-                try:
-                    proc.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                stopped_cleanly = False
-            except Exception as e:
-                print(f"Error stopping py-spy ({name}): {e}")
-                stopped_cleanly = False
-    if stopped_cleanly and (py_spy_main_proc or py_spy_merlin_proc):
-         print("Profiling data saved successfully.")
-    elif not (py_spy_main_proc or py_spy_merlin_proc):
-        print("Profiling was not active.")
-    else:
-        print("Profiling data might be incomplete due to errors during shutdown.")
+    stop_profiling(py_spy_main_proc, py_spy_merlin_proc)
     # --- End py-spy profiling ---
 
     # Existing shutdown logic
