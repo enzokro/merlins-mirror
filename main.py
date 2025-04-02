@@ -55,11 +55,11 @@ async def poll_result_queue(result_queue, async_queue, shutdown_event):
         except Exception as e:
             print(f"Error polling result queue: {e}")
         
-        # Short sleep to prevent CPU spinning
+        # small sleep to prevent CPU spinning
         await asyncio.sleep(0.01)
 
 async def startup():
-    "Start the merlin process and process incoming results."
+    "Starts the merlin process and handles incoming results."
     merlin.start()
     asyncio.create_task(poll_result_queue(result_queue, async_queue, shutdown_event))
 

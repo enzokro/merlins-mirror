@@ -77,18 +77,21 @@ RESULT_FRAME = "frame"
 RESULT_ERROR = "error"
 RESULT_STATUS = "status"
 
+# JPEG quality for the web app
+JPEG_QUALITY = 75
 
+    
+# Video settings
+VIDEO_PATH = 0  # Webcam index (0 for default camera)
+FRAME_BLEND = 0.7  # Blending factor for frame interpolation (higher = smoother but more latency)
+FRAME_SKIP = 2  # Only send every nth frame to reduce bandwidth
 
-class VideoConfig:
-    """Configuration parameters for the application."""
-    
-    # Video settings
-    VIDEO_PATH = 0  # Webcam index (0 for default camera)
-    CAP_PROPS = {'CAP_PROP_FPS': 30}  # OpenCV capture properties
-    FRAME_BLEND = 0.7  # Blending factor for frame interpolation (higher = smoother but more latency)
-    FRAME_SKIP = 2  # Only send every nth frame to reduce bandwidth
-    
-    # Image dimensions
-    WIDTH = DEFAULT_IMAGE_WIDTH  # Width for model input/output
-    HEIGHT = DEFAULT_IMAGE_HEIGHT  # Height for model input/output
+# todo: play around with capture settings for speed/quality
+
+# Image dimensions
+CAMERA_WIDTH = DISPLAY_WIDTH #DEFAULT_IMAGE_WIDTH  # Width for model input/output
+CAMERA_HEIGHT = DISPLAY_HEIGHT #DEFAULT_IMAGE_HEIGHT  # Height for model input/output
+
+# FPS for the video stream
+CAMERA_FPS = 30
 

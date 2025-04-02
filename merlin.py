@@ -1,56 +1,67 @@
-# ml_process.py
-import time
-from io import BytesIO
-import base64
-import numpy as np
-from PIL import Image
-from mirror_ai.utils import resize
+"""Proceso del Don Merlin"""
 
 def go_merlin(request_queue, result_queue):
-    """Processes webcame frames into transformed images."""
+    """Turns webcam frames into AI-generated images."""
     try:
-        # Import here to avoid loading these in the web process
+        # import what we need here to avoid heavy imports in the web process
+        import traceback
+        import time
+        import base64
+        from io import BytesIO
+        import torch
         from mirror_ai.pipeline import ImagePipeline
         from mirror_ai.video import VideoStreamer
-        from mirror_ai.utils import convert_to_pil_image
+        from mirror_ai.utils import convert_to_pil_image, resize
         from mirror_ai import config
         
-        print("Initializing ML pipeline...")
+        print("Initializing Merlin...")
         
-        # Initialize components
+        # set up the image transformer and the webcam stream
         pipeline = ImagePipeline()
         pipeline.load()
-        video_streamer = VideoStreamer()
+        video_streamer = VideoStreamer(
+            camera_id=config.CAMERA_ID,
+            width=config.CAMERA_WIDTH,
+            height=config.CAMERA_HEIGHT,
+            fps=config.CAMERA_FPS
+        )
         
+        # start with no prompt, and default running
         current_prompt = None
         running = True
         
-        print("ML process ready")
-        # Send status update to web process
+        print("Merlin is ready to ponder.")
         result_queue.put({
             "type": config.RESULT_STATUS,
             "status": "ready"
         })
         
-        # Main processing loop
+        # generate images in a loop
         while running:
-            # check for new requests
+            # process incoming requests from the web app
             try:
                 while not request_queue.empty():
                     request = request_queue.get_nowait()
+
+                    # shut down Merlin
                     if request["type"] == config.REQUEST_SHUTDOWN:
                         running = False
                         break
+
+                    # change the prompt
                     elif request["type"] == config.REQUEST_SET_PROMPT:
                         current_prompt = request["prompt"]
                         print(f"New prompt: {current_prompt}")
+
+                    # refresh the latents
                     elif request["type"] == config.REQUEST_REFRESH_LATENTS:
                         pipeline.refresh_latents()
                         print("Latents refreshed")
+
             except Exception as e:
-                print(f"Error processing request: {e}")
+                print(f"Error in Merlin process: {traceback.format_exc()}")
             
-            # Skip processing if we don't have a prompt yet
+            # wait until we have a prompt
             if not current_prompt or not running:
                 time.sleep(0.1)
                 continue
@@ -69,7 +80,7 @@ def go_merlin(request_queue, result_queue):
                     
                     # turn into base64 (easier to send through queue)
                     img_byte_arr = BytesIO()
-                    pil_frame.save(img_byte_arr, format='JPEG', quality=90)
+                    pil_frame.save(img_byte_arr, format='JPEG', quality=config.JPEG_QUALITY)
                     img_byte_arr.seek(0)
                     encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
                     
@@ -78,29 +89,38 @@ def go_merlin(request_queue, result_queue):
                         "type": config.RESULT_FRAME,
                         "data": encoded_img
                     })
+
             except Exception as e:
-                print(f"Error during frame processing: {e}")
+                print(f"Error during frame processing: {traceback.format_exc()}")
                 result_queue.put({
                     "type": config.RESULT_ERROR,
                     "message": str(e)
                 })
-                time.sleep(0.5)  # Avoid rapid error loops
+                time.sleep(0.5)  # avoid rapid error loops
     
     except Exception as e:
-        print(f"Fatal error in ML process: {e}")
-        # Try to notify web process
+        print(f"Fatal error in Merlin process: {traceback.format_exc()}")
+        # notify the web process
         try:
             result_queue.put({
                 "type": config.RESULT_ERROR,
-                "message": f"ML process crashed: {str(e)}"
+                "message": f"Merlin crashed 😔: {traceback.format_exc()}"
             })
         except:
             pass
     
     finally:
-        print("ML process shutting down")
-        # Clean up resources
+        print("Merlin going to sleep...")
         try:
-            video_streamer.release()
+            # cleanup the webcam
+            if video_streamer is not None:
+                video_streamer.stop()
+
+            # cleanup the pipeline
+            if pipeline is not None:
+                del pipeline
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
         except:
             pass

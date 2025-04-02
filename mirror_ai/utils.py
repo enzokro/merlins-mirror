@@ -1,4 +1,3 @@
-import threading
 from PIL import Image
 import cv2
 import numpy as np
@@ -37,7 +36,7 @@ openpose = OpenposeDetector.from_pretrained("lllyasviel/ControlNet").to(config.D
 
 def get_pose_map(image):
     pose_image = openpose(image)
-    pose_image = pose_image.resize((config.WIDTH, config.HEIGHT))
+    pose_image = pose_image.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
     return pose_image
 
 def interpolate_images(image1, image2, alpha=config.FRAME_BLEND):

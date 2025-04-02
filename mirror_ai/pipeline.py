@@ -17,6 +17,18 @@ from torchao.quantization import swap_conv2d_1x1_to_linear
 from . import config
 from .utils import get_depth_map, get_pose_map, dynamic_quant_filter_fn, conv_filter_fn
 
+# small torch speedups for compilation
+torch.backends.cuda.matmul.allow_tf32 = True
+torch._inductor.config.conv_1x1_as_mm = True
+torch._inductor.config.coordinate_descent_tuning = True
+torch._inductor.config.epilogue_fusion = False
+torch._inductor.config.coordinate_descent_check_all_directions = True
+# # for the linear swaps
+# torch._inductor.config.force_fuse_int_mm_with_mul = True
+# torch._inductor.config.use_mixed_mm = True
+
+### STABLE-FAST SECTION ###
+#######################################################
 # # Optional Stable-Fast import
 # try:
 #     from sfast.compilers.diffusion_pipeline_compiler import compile, CompilationConfig
@@ -36,16 +48,8 @@ from .utils import get_depth_map, get_pose_map, dynamic_quant_filter_fn, conv_fi
 #     is_triton_available = True
 # except ImportError:
 #     is_triton_available = False
-
-# small torch speedups, need to test
-torch.backends.cuda.matmul.allow_tf32 = True
-torch._inductor.config.conv_1x1_as_mm = True
-torch._inductor.config.coordinate_descent_tuning = True
-torch._inductor.config.epilogue_fusion = False
-torch._inductor.config.coordinate_descent_check_all_directions = True
-# # for the linear swaps
-# torch._inductor.config.force_fuse_int_mm_with_mul = True
-# torch._inductor.config.use_mixed_mm = True
+### /STABLE-FAST SECTION ###
+#######################################################
 
 
 class ImagePipeline:
@@ -148,61 +152,6 @@ class ImagePipeline:
         self._warmup()
         print("--- Pipeline Loading Process Complete ---")
 
-    # def _apply_stable_fast(self):
-    #     """Applies Stable-Fast compilation if available and configured."""
-    #     if not is_sfast_available:
-    #         print("Skipping Stable-Fast: Library not available.")
-    #         return
-
-    #     print("Applying Stable-Fast Compilation...")
-    #     sfast_config = CompilationConfig.Default()
-    #     compile_success = False
-    #     try:
-    #         if config.SFAST_ENABLE_XFORMERS:
-    #             if is_xformers_available:
-    #                 sfast_config.enable_xformers = True
-    #                 print("Stable-Fast: xformers enabled.")
-    #             else:
-    #                 print("Stable-Fast: xformers requested but not installed, disabling.")
-    #                 sfast_config.enable_xformers = False
-    #         else:
-    #              sfast_config.enable_xformers = False
-    #              print("Stable-Fast: xformers disabled by config.")
-
-    #         if config.SFAST_ENABLE_TRITON:
-    #             if is_triton_available:
-    #                 sfast_config.enable_triton = True
-    #                 print("Stable-Fast: Triton enabled.")
-    #             else:
-    #                 print("Stable-Fast: Triton requested but not installed, disabling.")
-    #                 sfast_config.enable_triton = False
-    #         else:
-    #              sfast_config.enable_triton = False
-    #              print("Stable-Fast: Triton disabled by config.")
-
-    #         if config.SFAST_ENABLE_CUDA_GRAPH:
-    #             sfast_config.enable_cuda_graph = True
-    #             print("Stable-Fast: CUDA Graph enabled.")
-    #         else:
-    #             sfast_config.enable_cuda_graph = False
-    #             print("Stable-Fast: CUDA Graph disabled by config.")
-
-    #         self.pipeline = compile(self.pipeline, sfast_config)
-    #         self._is_compiled = True
-    #         compile_success = True
-    #         print("Stable-Fast Compilation Complete.")
-
-        # except Exception as e:
-        #     print(f"Error during Stable-Fast compilation: {e}. Pipeline will run unoptimized.")
-        #     # Ensure pipeline is still the original if compilation fails mid-way
-        #     # (compile might return partially modified object on error, safer to reload or just use original)
-        #     # For simplicity here, we assume the original self.pipeline reference is usable.
-        #     self._is_compiled = False
-
-        # if compile_success:
-        #      print("Pipeline successfully compiled with Stable-Fast.")
-        # else:
-        #      print("Pipeline running without Stable-Fast optimization due to compilation issues or config.")
 
     def _warmup(self):
         """Performs warmup runs, essential after Stable-Fast compilation."""
@@ -330,3 +279,60 @@ class ImagePipeline:
     def refresh_latents(self):
         self.latents = torch.randn(self.latents_shape, generator=self.generator, device=self.device, dtype=config.DTYPE)
         return self.latents
+    
+    # def _apply_stable_fast(self):
+    #     """Applies Stable-Fast compilation if available and configured."""
+    #     if not is_sfast_available:
+    #         print("Skipping Stable-Fast: Library not available.")
+    #         return
+
+    #     print("Applying Stable-Fast Compilation...")
+    #     sfast_config = CompilationConfig.Default()
+    #     compile_success = False
+    #     try:
+    #         if config.SFAST_ENABLE_XFORMERS:
+    #             if is_xformers_available:
+    #                 sfast_config.enable_xformers = True
+    #                 print("Stable-Fast: xformers enabled.")
+    #             else:
+    #                 print("Stable-Fast: xformers requested but not installed, disabling.")
+    #                 sfast_config.enable_xformers = False
+    #         else:
+    #              sfast_config.enable_xformers = False
+    #              print("Stable-Fast: xformers disabled by config.")
+
+    #         if config.SFAST_ENABLE_TRITON:
+    #             if is_triton_available:
+    #                 sfast_config.enable_triton = True
+    #                 print("Stable-Fast: Triton enabled.")
+    #             else:
+    #                 print("Stable-Fast: Triton requested but not installed, disabling.")
+    #                 sfast_config.enable_triton = False
+    #         else:
+    #              sfast_config.enable_triton = False
+    #              print("Stable-Fast: Triton disabled by config.")
+
+    #         if config.SFAST_ENABLE_CUDA_GRAPH:
+    #             sfast_config.enable_cuda_graph = True
+    #             print("Stable-Fast: CUDA Graph enabled.")
+    #         else:
+    #             sfast_config.enable_cuda_graph = False
+    #             print("Stable-Fast: CUDA Graph disabled by config.")
+
+    #         self.pipeline = compile(self.pipeline, sfast_config)
+    #         self._is_compiled = True
+    #         compile_success = True
+    #         print("Stable-Fast Compilation Complete.")
+
+        # except Exception as e:
+        #     print(f"Error during Stable-Fast compilation: {e}. Pipeline will run unoptimized.")
+        #     # Ensure pipeline is still the original if compilation fails mid-way
+        #     # (compile might return partially modified object on error, safer to reload or just use original)
+        #     # For simplicity here, we assume the original self.pipeline reference is usable.
+        #     self._is_compiled = False
+
+        # if compile_success:
+        #      print("Pipeline successfully compiled with Stable-Fast.")
+        # else:
+        #      print("Pipeline running without Stable-Fast optimization due to compilation issues or config.")
+

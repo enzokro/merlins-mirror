@@ -7,20 +7,25 @@ import cv2
 
 class VideoStreamer:
     """Captures frames from webcam in a separate thread"""
-    def __init__(self, camera_id=0, width=640, height=480):
+    def __init__(self, camera_id=0, width=640, height=480, fps=30):
         self.camera_id = camera_id
         self.width = width
         self.height = height
+        self.fps = fps
         self.frame = None
         self.running = False
         self.lock = threading.Lock()
+        self.thread = None
         self.cap = None
         
         # Start the capture thread
         self.start()
         
     def start(self):
-        """Start the video capture thread"""
+        """Starts the video capture thread"""
+        if self.thread is not None and self.thread.is_alive():
+            return  # already running
+        
         self.running = True
         self.thread = threading.Thread(target=self._capture_loop)
         self.thread.daemon = True
@@ -31,6 +36,7 @@ class VideoStreamer:
         self.cap = cv2.VideoCapture(self.camera_id)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        self.cap.set(cv2.CAP_PROP_FPS, self.fps)
         
         while self.running:
             ret, frame = self.cap.read()
@@ -48,14 +54,15 @@ class VideoStreamer:
             time.sleep(0.01)
     
     def get_current_frame(self):
-        """Get the current frame as a PIL Image"""
+        """Gets the current frame as a PIL Image"""
         with self.lock:
             return self.frame.copy() if self.frame is not None else None
     
-    def release(self):
-        """Release resources"""
+    def stop(self):
+        """Explicitly stops capture thread"""
         self.running = False
-        if self.thread:
+        if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1.0)
         if self.cap:
             self.cap.release()
+            self.cap = None
