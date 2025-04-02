@@ -262,6 +262,7 @@ class ImagePipeline:
                     control_guidance_start=0.0,
                     control_guidance_end=1.0,
                     strength=0.75,
+                    guidance_scale=config.GUIDANCE_SCALE,
 
 
                     negative_prompt=config.NEGATIVE_PROMPT,
