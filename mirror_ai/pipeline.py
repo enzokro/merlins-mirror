@@ -277,7 +277,7 @@ class ImagePipeline:
         return self.latents.clone()
 
     def refresh_latents(self):
-        self.latents = torch.randn(self.latents_shape, generator=self.generator, device=self.device, dtype=config.DTYPE)
+        self.latents = torch.randn(self.latents_shape, generator=self.generator, device=config.DEVICE, dtype=config.DTYPE)
         return self.latents
     
     # def _apply_stable_fast(self):
