@@ -1,4 +1,4 @@
-"""Merlin looks into the mirror..."""
+"""Main application for Merlin's Mirror"""
 from fasthtml.common import *
 from monsterui.all import *
 import os

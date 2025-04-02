@@ -1,4 +1,4 @@
-"""Proceso del Don Merlin"""
+"""Merlin looks into the mirror..."""
 
 def go_merlin(request_queue, result_queue):
     """Turns webcam frames into AI-generated images."""
