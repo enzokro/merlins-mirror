@@ -280,7 +280,7 @@ class ImagePipeline:
 
     def refresh_latents(self):
         # self.latents = torch.randn(self.latents_shape, generator=self.generator, device=config.DEVICE, dtype=config.DTYPE)
-        self.latents = randn_tensor(self.latents_shape, generator=self.generator, device=config.DEVICE, dtype=config.DTYPE)
+        self.latents = randn_tensor(self.latents_shape, generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
     
     # def _apply_stable_fast(self):
     #     """Applies Stable-Fast compilation if available and configured."""
