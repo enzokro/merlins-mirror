@@ -65,7 +65,7 @@ class ImagePipeline:
         print("--- Starting Pipeline Loading Process ---")
 
         # --- 1. Load SDXL Lightning UNet  ---
-        print(f"Loading SDXL Lightning {config.N_STEPS}-Step UNet ({lightning_ckpt_file})...")
+        print(f"Loading SDXL Lightning {config.N_STEPS}-Step UNet")
 
         lightning_ckpt_file = config.LIGHTNING_CKPT_TEMPLATE.format(n_steps=config.N_STEPS)
 
