@@ -8,13 +8,13 @@ Merlin's Mirror is a live art installation thatcreates real-time AI videos from 
 
 Thanks to recent progress in Stable Diffusions models and hardware acceleration, it is now possible to generate images in real-time.
 
-We build on this to create Merlin's Mirror: a live art installation that transforms the world in front of you. The installation has been hosted at the following locations in NYC:
+We build on this to create Merlin's Mirror: a live art installation that transforms the world in front of you. It's been hosted at the following places in NYC:
 - Merlin's Place
 - Telos Haus
 
 The first versions of Merlin's Mirror were not real-time. They ran at about 1 frame per second, with a ~3 second lag from our movements to the live video. This latest version, `mirror_ai`, is fully real-time. 
 
-People have really enjoyed Merlin's Mirror. There are other projects in a similar spirit, but I had the good fortune of hosting this at smaller, fun events where many folks knew each other. This is quite different from a typical, more impersonal museum or gallery setup. People were collaborating on the prompts, asking their friends to join, and having fun trying to break the model.  
+People have really enjoyed Merlin's Mirror. There are other projects in a similar spirit, but I had the good fortune of hosting this at smaller, fun events where many folks knew each other. This felt quite different from a typical, more impersonal museum or gallery setup. People were collaborating on the prompts, asking their friends to join, and having fun trying to break the model.  
 
 ## Accessible Merlin  
 
