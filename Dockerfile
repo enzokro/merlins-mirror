@@ -9,6 +9,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Explicitly set CUDA paths, although the base image should handle this.
 # It's good practice for clarity and ensures tools find the CUDA toolkit.
 ENV PATH="/usr/local/cuda/bin:${PATH}"
+ENV CUDA_PATH=/usr/local/cuda \
+    CUDA_HOME=/usr/local/cuda \
+    CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda \
+    CUDA_DOCKER_ARCH=all \
+    CUDAVER=12.4.1
 ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 ENV HF_HOME=/app/models
 
@@ -23,17 +28,18 @@ ENV HF_HOME=/app/models
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
+        cmake \
+        gcc \
+        g++ \
+        ninja-build \
         python3 \
         python3-pip \
         git \
         curl \
         wget \
         ca-certificates \
-        ninja-build \
         software-properties-common \
-        ubuntu-drivers-common \
     && rm -rf /var/lib/apt/lists/*
-RUN add-apt-repository ppa:apt-fast/stable && apt-get update && apt-get -y install apt-fast
 
 # Install 'uv' - the fast Python package installer and resolver.
 # We'll use pip to install it initially.
@@ -46,7 +52,6 @@ WORKDIR /app
 # Copying these *before* running install leverages Docker caching.
 # If only app code changes later, dependency installation won't rerun.
 COPY pyproject.toml uv.lock .python-version ./
-COPY .env ./
 
 # Install Python dependencies using uv.
 # This should install PyTorch, diffusers, stable-fast, and other core libraries
@@ -81,20 +86,14 @@ RUN uv run accelerate config default
 EXPOSE 10295
 
 # Final check for CUDA - this command should succeed if CUDA is set up correctly.
-# RUN nvidia-smi
-RUN apt-get update && apt-get install -y 
-
-# RUN ubuntu-drivers devices && apt-fast install -y nvidia-570 && modprobe nvidia
-# RUN nvidia-smi
 RUN which nvcc
 
-# copy the project files
+# copy the project files, put here for cache purposes
 COPY .docker_env .env
 COPY static static
 COPY main.py main.py
 COPY merlin.py merlin.py
 COPY mirror_ai mirror_ai
-
 
 # start the application
 CMD ["uv", "run", "python", "main.py"]

@@ -51,6 +51,7 @@ torch._inductor.config.coordinate_descent_check_all_directions = True
 ### /STABLE-FAST SECTION ###
 #######################################################
 
+print(f"MODEL SETUP (device, dtype): {config.DEVICE}, {config.DTYPE}")
 
 class ImagePipeline:
     """Wraps the SDXL Lightning and ControlNet++ pipeline setup."""
