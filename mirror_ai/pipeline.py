@@ -255,14 +255,13 @@ class ImagePipeline:
                     # image=control_image,
 
                     num_inference_steps=steps,
-                    guidance_scale=g_scale,
-                    controlnet_conditioning_scale=cn_scale,
 
                     # MOVING OVER VALUES FROM BEFORE
+                    controlnet_conditioning_scale=0.5,
                     control_guidance_start=0.0,
                     control_guidance_end=1.0,
                     strength=0.75,
-                    guidance_scale=config.GUIDANCE_SCALE,
+                    guidance_scale=0,
 
 
                     negative_prompt=config.NEGATIVE_PROMPT,

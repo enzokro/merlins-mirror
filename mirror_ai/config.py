@@ -24,6 +24,7 @@ DTYPE = torch.float16
 # --- Inference Parameters ---
 # Guidance scale. MUST be 0.0 for SDXL Lightning/Turbo models.
 GUIDANCE_SCALE = 0.0
+
 # Controlnet setup
 CONTROLNET_DEPTH = "diffusers/controlnet-depth-sdxl-1.0"
 CONTROLNET_POSE = "thibaud/controlnet-openpose-sdxl-1.0"
