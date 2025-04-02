@@ -23,6 +23,6 @@ This repo is an attempt to make Merlin's Mirror useable by other people. As of w
 ## Tech Stack
 
 - FastHTML and MonsterUI for the frontend
-- HuggingFace for the video generation pipeline
-- OpenCV for the webcam stream
-- Docker for containerization
+- HuggingFace for the video generation
+- OpenCV to handle the webcam
+- Docker for deployment
