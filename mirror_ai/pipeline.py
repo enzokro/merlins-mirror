@@ -244,11 +244,11 @@ class ImagePipeline:
                     prompt=prompt,
 
                     # ## For ControlNetImg2ImgPipeline
-                    # image=camera_frame,
-                    # control_image=control_image,
+                    image=camera_frame,
+                    control_image=control_image,
 
                     # ## For StableDiffusionXLPipeline
-                    image=control_image,
+                    # image=control_image,
 
                     num_inference_steps=steps,
                     guidance_scale=g_scale,
