@@ -257,11 +257,11 @@ class ImagePipeline:
                     num_inference_steps=steps,
 
                     # MOVING OVER VALUES FROM BEFORE
-                    controlnet_conditioning_scale=0.8,
+                    controlnet_conditioning_scale=0.75,
                     control_guidance_start=0.0,
                     control_guidance_end=1.0,
-                    strength=1.0,
-                    guidance_scale=1.0,
+                    strength=0.8,
+                    guidance_scale=0.0,
 
 
                     negative_prompt=config.NEGATIVE_PROMPT,
