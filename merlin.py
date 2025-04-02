@@ -69,14 +69,19 @@ def go_merlin(request_queue, result_queue):
             # process camera frames
             try:
                 camera_frame = video_streamer.get_current_frame()
+                camera_frame.save('/app/persist/camera_04_queue.jpg')
                 if camera_frame is not None:
                     # transform the webcam image
                     processed_frame = pipeline.generate(current_prompt, camera_frame)
+                    processed_frame.save('/app/persist/camera_05_generated.jpg')
                     
                     # convert to storable format
                     pil_frame = convert_to_pil_image(processed_frame)
+                    pil_frame.save('/app/persist/camera_06_pil.jpg')
+
                     # resize keeping aspect ratio
                     pil_frame = pil_frame.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT))
+                    pil_frame.save('/app/persist/camera_07_resized.jpg')
                     
                     # turn into base64 (easier to send through queue)
                     img_byte_arr = BytesIO()

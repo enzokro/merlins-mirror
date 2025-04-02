@@ -7,7 +7,7 @@ import cv2
 
 class VideoStreamer:
     """Captures frames from webcam in a separate thread"""
-    def __init__(self, camera_id=0, width=640, height=480, fps=30):
+    def __init__(self, camera_id=0, width=1920, height=1080, fps=30):
         self.camera_id = camera_id
         self.width = width
         self.height = height
@@ -41,10 +41,13 @@ class VideoStreamer:
         while self.running:
             ret, frame = self.cap.read()
             if ret:
+                cv2.imwrite('/app/persist/camera_00_raw.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
                 # Convert to RGB (from BGR)
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                cv2.imwrite('/app/persist/camera_01_rgb.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
                 # Convert to PIL Image
                 pil_image = Image.fromarray(frame)
+                pil_image.save('/app/persist/camera_02_pil.jpg')
                 
                 # Update the current frame
                 with self.lock:
