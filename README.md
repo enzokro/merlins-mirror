@@ -2,7 +2,7 @@
 
 ## Overview
 
-Merlin's Mirror generates real-time video from a webcam, using a custom Stable Diffusion pipeline.
+Merlin's Mirror creates real-time AI videos from a webcam using a Stable Diffusion model.
 
 ## Tech Stack
 
