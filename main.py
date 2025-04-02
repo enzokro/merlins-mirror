@@ -25,20 +25,16 @@ result_queue = mp.Queue()
 # shutdown event
 shutdown_event = signal_shutdown()
 
-# set the favicon
-favicon_headers = Favicon(
-    light_icon="/static/logo.png",
-    dark_icon="/static/logo.png",
-)
-
 # set the MonsterUI theme
 theme = getattr(Theme, theme_name).headers(mode="light")
-
+# set the favicon
+favicon_headers = Favicon(light_icon="/static/logo.png", dark_icon="/static/logo.png")
 # makes our app full-screen
 full_screen_style = Link(rel="stylesheet", href="/static/styles.css")
-
 # sse to emit transformed images
 sse_script = Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js")
+# setup the app headers
+hdrs = [theme, favicon_headers, full_screen_style, sse_script]
 
 # create the merlin process
 merlin = mp.Process(
@@ -54,8 +50,8 @@ async def poll_result_queue(result_queue, async_queue, shutdown_event):
         # check for new results
         try:
             if not result_queue.empty():
-                result = result_queue.get_nowait()
-                await async_queue.put(result)
+                res = result_queue.get_nowait()
+                await async_queue.put(res)
         except Exception as e:
             print(f"Error polling result queue: {e}")
         
@@ -63,7 +59,7 @@ async def poll_result_queue(result_queue, async_queue, shutdown_event):
         await asyncio.sleep(0.01)
 
 async def startup():
-    "Start the merlin process and process any results."
+    "Start the merlin process and process incoming results."
     merlin.start()
     asyncio.create_task(poll_result_queue(result_queue, async_queue, shutdown_event))
 
@@ -74,7 +70,6 @@ async def shutdown():
     request_queue.put({"type": config.REQUEST_SHUTDOWN})
 
 # create the mirror app
-hdrs = [theme, favicon_headers, full_screen_style, sse_script]
 app, rt = fast_app(
     hdrs=hdrs,
     on_startup=startup,
