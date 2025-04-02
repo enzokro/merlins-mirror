@@ -33,7 +33,7 @@ CONTROLNETS = [
     # CONTROLNET_POSE,
 ]
 # Conditioning scale for ControlNet. Balances prompt vs. control image influence. (Tunable)
-CONTROLNET_CONDITIONING_SCALE = 0.75 # Default value, can be adjusted
+CONTROLNET_CONDITIONING_SCALE = 0.5 # Default value, can be adjusted
 
 # --- Scheduler Configuration ---
 # Timestep spacing strategy. MUST be "trailing" for SDXL Lightning UNets (except 1-step).
@@ -58,8 +58,8 @@ WARMUP_RUNS = 3
 DEFAULT_IMAGE_WIDTH = 1024
 DEFAULT_IMAGE_HEIGHT = 1024
 
-DISPLAY_WIDTH = 640  # Width for web display
-DISPLAY_HEIGHT = 480  # Height for web display
+DISPLAY_WIDTH = 1920  # Width for web display
+DISPLAY_HEIGHT = 1080  # Height for web display
 
 # Negative prompt for SDXL
 NEGATIVE_PROMPT = "low quality, blurry, distorted, bad anatomy"
@@ -78,7 +78,7 @@ RESULT_ERROR = "error"
 RESULT_STATUS = "status"
 
 # JPEG quality for the web app
-JPEG_QUALITY = 75
+JPEG_QUALITY = 90
 
     
 # Video settings
@@ -87,8 +87,8 @@ CAMERA_ID = 0  # Webcam index (0 for default camera)
 # todo: play around with capture settings for speed/quality
 
 # Image dimensions
-CAMERA_WIDTH = DISPLAY_WIDTH #DEFAULT_IMAGE_WIDTH  # Width for model input/output
-CAMERA_HEIGHT = DISPLAY_HEIGHT #DEFAULT_IMAGE_HEIGHT  # Height for model input/output
+CAMERA_WIDTH = DEFAULT_IMAGE_WIDTH #DEFAULT_IMAGE_WIDTH  # Width for model input/output
+CAMERA_HEIGHT = DEFAULT_IMAGE_HEIGHT #DEFAULT_IMAGE_HEIGHT  # Height for model input/output
 
 # FPS for the video stream
 CAMERA_FPS = 30

@@ -72,7 +72,9 @@ class ImagePipeline:
         lightning_ckpt_file = config.LIGHTNING_CKPT_TEMPLATE.format(n_steps=config.N_STEPS)
 
         # Instantiate UNet from config, then load the specific Lightning weights
-        unet = UNet2DConditionModel.from_config(config.SDXL_BASE_MODEL_ID, subfolder="unet").to(config.DEVICE, dtype=config.DTYPE)
+        # unet = UNet2DConditionModel.from_config(config.SDXL_BASE_MODEL_ID, subfolder="unet").to(config.DEVICE, dtype=config.DTYPE)
+        unet_config = UNet2DConditionModel.load_config(config.SDXL_BASE_MODEL_ID, subfolder="unet")
+        unet = UNet2DConditionModel.from_config(unet_config).to(config.DEVICE, dtype=config.DTYPE)
         unet.load_state_dict(
             load_file(
                 hf_hub_download(config.SDXL_LIGHTNING_REPO_ID, lightning_ckpt_file),
@@ -141,8 +143,8 @@ class ImagePipeline:
             self.pipeline.controlnet.to(memory_format=torch.channels_last)
 
         # TODO: figure out dynamic quantization
-        swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
-        swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
+        # swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
+        # swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
         # apply_dynamic_quant(self.pipeline.unet, dynamic_quant_filter_fn)
         # apply_dynamic_quant(self.pipeline.vae, dynamic_quant_filter_fn)
 
@@ -255,6 +257,13 @@ class ImagePipeline:
                     num_inference_steps=steps,
                     guidance_scale=g_scale,
                     controlnet_conditioning_scale=cn_scale,
+
+                    # MOVING OVER VALUES FROM BEFORE
+                    control_guidance_start=0.0,
+                    control_guidance_end=1.0,
+                    strength=0.75,
+
+
                     negative_prompt=config.NEGATIVE_PROMPT,
                     generator=self.generator,
 
