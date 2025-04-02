@@ -82,7 +82,7 @@ JPEG_QUALITY = 75
 
     
 # Video settings
-VIDEO_PATH = 0  # Webcam index (0 for default camera)
+CAMERA_INDEX = 0  # Webcam index (0 for default camera)
 FRAME_BLEND = 0.7  # Blending factor for frame interpolation (higher = smoother but more latency)
 FRAME_SKIP = 2  # Only send every nth frame to reduce bandwidth
 
