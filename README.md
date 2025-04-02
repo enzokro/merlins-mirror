@@ -14,7 +14,7 @@ We build on this to create Merlin's Mirror: a live art installation that transfo
 
 The first versions of Merlin's Mirror were not real-time. They ran at about 1 frame per second, with a ~3 second lag from our movements to the live video. This latest version, `mirror_ai`, is fully real-time. 
 
-People have really enjoyed Merlin's Mirror. There are other projects in a similar spirit, but I had the good fortune of hosting this at smaller, fun events where many folks knew each other. This felt quite different from a typical, more impersonal museum or gallery setup. People were collaborating on the prompts, asking their friends to join, and having fun trying to break the model.  
+People have really enjoyed Merlin's Mirror. There are other projects in a similar spirit, but I had the good fortune of hosting this at smaller, fun events where many folks knew each other. This felt quite different from a typical, more impersonal museum or gallery setup. People were collaborating on the prompts, asking their friends to join, and had fun trying to break the model.  
 
 ## Accessible Merlin  
 
