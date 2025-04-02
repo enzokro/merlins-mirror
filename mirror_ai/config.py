@@ -67,6 +67,16 @@ NEGATIVE_PROMPT = "low quality, blurry, distorted, bad anatomy"
 # Frame processing
 FRAME_BLEND = 0.75
 
+# message types for request queue
+REQUEST_SET_PROMPT = "set_prompt"
+REQUEST_REFRESH_LATENTS = "refresh_latents"
+REQUEST_SHUTDOWN = "shutdown"
+
+# message types for result queue
+RESULT_FRAME = "frame"
+RESULT_ERROR = "error"
+RESULT_STATUS = "status"
+
 
 
 class VideoConfig:

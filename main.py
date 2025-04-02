@@ -1,71 +1,84 @@
-import asyncio
-import base64
-from io import BytesIO
-from PIL import Image
+"""Merlin looks into the mirror..."""
 from fasthtml.common import *
 from monsterui.all import *
+import os
+import sys
+import asyncio
+import signal
+import multiprocessing as mp
 from dotenv import load_dotenv
-from mirror_ai.pipeline import ImagePipeline
-from mirror_ai.video import VideoStreamer
-from mirror_ai.utils import SharedResources, convert_to_pil_image
-from mirror_ai import config
 
-# load the env vars
+from merlin import go_merlin
+from . import config
+
+
+# load and set the environment variables
 load_dotenv()
-
-# setup the app
 app_name = os.getenv("APP_NAME", "Merlin's Mirror")
 theme_name = os.getenv("THEME", "violet").lower()
 
-# setup the favicon
+# asyncio queue for the bridge
+async_queue = asyncio.Queue()
+shutdown_event = signal_shutdown()
+
+# communication queues
+request_queue = mp.Queue()
+result_queue = mp.Queue()
+
+
+# set the favicon
 favicon_headers = Favicon(
     light_icon="/static/logo.png",
     dark_icon="/static/logo.png"
 )
 
-# setup the theme
+# set the MonsterUI theme
 theme = getattr(Theme, theme_name).headers(mode="light")
 
-# add explicit css to control viewport and image behavior
+# makes our app full-screen
 full_screen_style = Link(rel="stylesheet", href="/static/styles.css")
 
-# SSE to send processed frames to the client
+# sse to emit transformed images
 sse_script = Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js")
 
-hdrs = [
-    theme,
-    favicon_headers,
-    full_screen_style,
-    sse_script,
-]
+# Create FastHTML app
+hdrs = [theme, favicon_headers, full_screen_style, sse_script]
+app, rt = fast_app(hdrs=hdrs)
 
-# create the app
-app, rt = fast_app(
-    hdrs=hdrs,
-)
+# polling bridge
+@app.on_startup
+async def startup():
+    # Start the polling bridge
+    asyncio.create_task(poll_result_queue(result_queue, async_queue, shutdown_event))
 
-# create the pipeline
-pipeline = None #ImagePipeline()
-# pipeline.load()
-
-# create the shared resources
-shared_resources = SharedResources(pipeline)
-# grabs frames from the webcam
-video_streamer = VideoStreamer()
-
-@rt('/')
-def get():
-    return Title(app_name), Div(
+# Polling bridge function
+async def poll_result_queue(result_queue, async_queue, shutdown_event):
+    """Bridge between multiprocessing queue and asyncio queue"""
+    while not shutdown_event.is_set():
+        # Non-blocking check for new results
+        try:
+            if not result_queue.empty():
+                result = result_queue.get_nowait()
+                await async_queue.put(result)
+        except Exception as e:
+            print(f"Error polling result queue: {e}")
         
+        # Short sleep to prevent CPU spinning
+        await asyncio.sleep(0.01)
+
+# Home page route
+@rt('/')
+def index():
+    return Title(app_name), Div(
         # Main Image Container - takes all available space
         Div(
             Img(src="/static/logo.png", cls="image-fit"),
             id="image-container",
             cls="image-wrapper",
-            # hx_ext="sse",
-            # sse_connect="/generate",
-            # hx_swap="innerHTML",
-            # sse_swap="message",
+            hx_ext="sse",
+            sse_connect="/generate",
+            hx_swap="innerHTML",
+            sse_swap="message",
         ),
         
         # Controls Section - fixed height at bottom
@@ -77,20 +90,19 @@ def get():
                         FormLabel(app_name, fr="prompt", cls="text-center justify-center text-2xl text-primary font-bold"),
                         cls="rounded-lg bg-secondary shadow-lg border",
                     ),
-                    # P(app_name, cls="text-xl font-bold text-purple-700 mb"),
                     Input(id="prompt", name="prompt", placeholder="What do you see?", 
-                          cls="w-full p-2 border rounded text-lg"),
+                            cls="w-full p-2 border rounded text-lg"),
                     Button("Generate", id="generate", type="button", cls=ButtonT.primary + ' border text-xl rounded-lg shadow-lg',
-                           hx_post="/set_prompt",
-                           hx_swap="none", 
-                           hx_include="#prompt"),
+                            hx_post="/set_prompt",
+                            hx_swap="none", 
+                            hx_include="#prompt"),
                     cls="flex items-end space-x-2 flex-grow justify-center align-center",
                 ),
                 
                 # Right side button - HTMX adjusted for silent submission
                 Button("Refresh Latents", id="refresh", cls=ButtonT.secondary + ' border rounded-lg shadow-lg ml-4 mt-5',
-                       hx_post="/refresh_latents",
-                       hx_swap="none"),
+                        hx_post="/refresh_latents",
+                        hx_swap="none"),
                 
                 cls="w-full",
             ),
@@ -100,57 +112,83 @@ def get():
         cls="main-container",
     )
 
+# sets the prompt
 @rt('/set_prompt')
-def post(prompt: str):
-    print(f"prompt: {prompt}")
-    shared_resources.update_prompt(prompt)
+def set_prompt(prompt: str):
+    print(f"Web: Setting prompt: {prompt}")
+    request_queue.put({
+        "type": config.REQUEST_SET_PROMPT,
+        "prompt": prompt
+    })
+    return ""  # Empty response for HTMX
 
+# refreshes the latents for a touch up
 @rt('/refresh_latents')
-def post():
-    print("Refreshing latents...")
-    shared_resources.refresh_latents()
+def refresh_latents():
+    print("Web: Refreshing latents")
+    request_queue.put({
+        "type": config.REQUEST_REFRESH_LATENTS
+    })
+    return ""  # Empty response for HTMX
 
-shutdown_event = signal_shutdown()
+# sends the generated image in an sse stream
 async def generate():
+    """Generates SSE events with transformed images"""
     while not shutdown_event.is_set():
-        # # TODO: remove when working
-        # yield sse_message(P("Generating..."))
-        # await asyncio.sleep(1)
-        # continue
-
-        # get the current frame from the webcam, and latest prompt
-        camera_frame = video_streamer.get_current_frame()
-        prompt = shared_resources.get_prompt()
-
-        # Ensure camera_frame is not None and prompt is available
-        if camera_frame is None or prompt is None:
-            await asyncio.sleep(0.1) # Avoid busy-waiting if resources aren't ready
-            continue
-
-        try:
-            frame = shared_resources.generate_frame(prompt, camera_frame)
-
-            # Convert the processed frame (assuming PIL or convertible) to base64 JPEG
-            img_byte_arr = BytesIO()
-            pil_frame = convert_to_pil_image(frame) # Convert if necessary
-            # Resize using constants from config
-            pil_frame = pil_frame.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)) 
-            pil_frame.save(img_byte_arr, format='JPEG')
-            img_byte_arr.seek(0)
-            encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
-            data_uri = f"data:image/jpeg;base64,{encoded_img}"
-
-            # Create the Img tag with the base64 data URI
+        result = await async_queue.get()
+        
+        if result["type"] == config.RESULT_FRAME:
+            # Create image tag with base64 data
+            data_uri = f"data:image/jpeg;base64,{result['data']}"
             img = Img(src=data_uri, cls="image-fit")
             yield sse_message(img)
+            
+        elif result["type"] == config.RESULT_ERROR:
+            # Display error message
+            error_div = Div(
+                P(f"Error: {result['message']}", cls="text-red-500"),
+                cls="p-4 bg-red-100 rounded"
+            )
+            yield sse_message(error_div)
+            
+        elif result["type"] == config.RESULT_STATUS:
+            # Status updates
+            status_div = Div(
+                P(f"Status: {result['status']}", cls="text-blue-500"),
+                cls="p-4 bg-blue-100 rounded"
+            )
+            yield sse_message(status_div)
 
-        except Exception as e:
-            print(f"Error during frame generation or encoding: {e}")
-            # Optionally yield an error message or placeholder image
-            await asyncio.sleep(0.5) # Wait a bit before retrying on error
-
+# SSE endpoint
 @rt("/generate")
-async def get(): return EventStream(generate())
+async def merlin_looks_into_the_mirror():
+    return EventStream(generate())
 
+# gracefully shuts down the app
+@app.on_shutdown
+async def shutdown():
+    print("Web: Shutting down")
+    shutdown_event.set()
+    # merlin can rest
+    request_queue.put({"type": config.REQUEST_SHUTDOWN})
 
+# start merlin
+merlin = mp.Process(
+    target=go_merlin,
+    args=(request_queue, result_queue),
+    daemon=True
+)
+merlin.start()
+
+# setup for graceful shutdown
+def signal_handler(sig, frame):
+    print("Shutting down...")
+    request_queue.put({"type": config.REQUEST_SHUTDOWN})
+    merlin.join(timeout=5)
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+# what did Merlin see?
 serve()
