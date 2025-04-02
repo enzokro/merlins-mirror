@@ -88,11 +88,11 @@ class ImagePipeline:
         )
         print("UNet Loaded and moved to device.")
 
-        # --- 2a. Load the fixed VAE ---
-        vae = AutoencoderKL.from_pretrained(
-            "madebyollin/sdxl-vae-fp16-fix", 
-            torch_dtype=torch.float16
-        )
+        # # --- 2a. Load the fixed VAE ---
+        # vae = AutoencoderKL.from_pretrained(
+        #     "madebyollin/sdxl-vae-fp16-fix", 
+        #     torch_dtype=torch.float16
+        # )
 
         # --- 3. Load ControlNet Models ---
         print("Loading ControlNet models...")
@@ -112,7 +112,7 @@ class ImagePipeline:
             config.SDXL_BASE_MODEL_ID,
             unet=unet,                  # Inject the loaded Lightning UNet
             controlnet=controlnet,      # Inject the loaded ControlNet
-            vae=vae,                    # Inject the fixed VAE
+            # vae=vae,                    # Inject the fixed VAE
             torch_dtype=config.DTYPE,
             use_safetensors=True,
             variant="fp16"              # Standard practice for SDXL
