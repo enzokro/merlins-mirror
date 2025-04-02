@@ -13,7 +13,7 @@ feature_extractor = DPTImageProcessor.from_pretrained("Intel/dpt-hybrid-midas")
 
 def get_depth_map(image):
     image = feature_extractor(images=image, return_tensors="pt").pixel_values.to(config.DEVICE)
-    with torch.no_grad(), torch.autocast(config.DEVICE):
+    with torch.no_grad():
         depth_map = depth_estimator(image).predicted_depth
 
     depth_map = torch.nn.functional.interpolate(
