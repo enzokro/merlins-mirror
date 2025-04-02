@@ -1,9 +1,9 @@
-# mirror_ai/video.py
-import cv2
-import numpy as np
-from PIL import Image
+"""Captures frames from webcam in a separate thread"""
 import time
 import threading
+from PIL import Image
+import cv2
+
 
 class VideoStreamer:
     """Captures frames from webcam in a separate thread"""

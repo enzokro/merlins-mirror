@@ -1,37 +1,12 @@
-from PIL import Image
-import torch
-import numpy as np
 import threading
+from PIL import Image
+import cv2
+import numpy as np
+import torch
 from transformers import DPTImageProcessor, DPTForDepthEstimation
 from controlnet_aux import OpenposeDetector
 from . import config
 
-
-class SharedResources:
-    def __init__(self, pipeline):
-        self.current_frame = None
-        self.current_prompt = None
-        self.lock = threading.Lock()
-        self.stop_event = threading.Event()
-        self.pipeline = pipeline
-
-
-    def update_prompt(self, prompt):
-        with self.lock:
-            self.current_prompt = prompt
-
-    def get_prompt(self):
-        with self.lock:
-            return self.current_prompt
-        
-    def refresh_latents(self):
-        with self.lock:
-            self.pipeline.refresh_latents()
-
-    def generate_frame(self, prompt, camera_frame):
-        with self.lock:
-            return self.pipeline.generate(prompt, camera_frame)
-        
 
 # Depth map utils
 depth_estimator = DPTForDepthEstimation.from_pretrained("Intel/dpt-hybrid-midas").to(config.DEVICE)
@@ -65,7 +40,7 @@ def get_pose_map(image):
     pose_image = pose_image.resize((config.WIDTH, config.HEIGHT))
     return pose_image
 
-def interpolate_images(image1, image2, alpha=0.5):
+def interpolate_images(image1, image2, alpha=config.FRAME_BLEND):
     if image1.size != image2.size:
         image2 = image2.resize(image1.size)
     return Image.blend(image1, image2, alpha)
@@ -122,3 +97,35 @@ def conv_filter_fn(mod, *args):
     return (
         isinstance(mod, torch.nn.Conv2d) and mod.kernel_size == (1, 1) and 128 in [mod.in_channels, mod.out_channels]
     )
+
+def resize(image, width=None, height=None, inter=cv2.INTER_AREA):
+    "FROM: https://github.com/PyImageSearch/imutils/blob/master/imutils/convenience.py#L65"
+    # initialize the dimensions of the image to be resized and
+    # grab the image size
+    dim = None
+    (h, w) = image.shape[:2]
+
+    # if both the width and height are None, then return the
+    # original image
+    if width is None and height is None:
+        return image
+
+    # check to see if the width is None
+    if width is None:
+        # calculate the ratio of the height and construct the
+        # dimensions
+        r = height / float(h)
+        dim = (int(w * r), height)
+
+    # otherwise, the height is None
+    else:
+        # calculate the ratio of the width and construct the
+        # dimensions
+        r = width / float(w)
+        dim = (width, int(h * r))
+
+    # resize the image
+    resized = cv2.resize(image, dim, interpolation=inter)
+
+    # return the resized image
+    return resized

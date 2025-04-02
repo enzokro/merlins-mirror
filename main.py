@@ -9,27 +9,26 @@ import multiprocessing as mp
 from dotenv import load_dotenv
 
 from merlin import go_merlin
-from . import config
-
+from mirror_ai import config
 
 # load and set the environment variables
 load_dotenv()
 app_name = os.getenv("APP_NAME", "Merlin's Mirror")
 theme_name = os.getenv("THEME", "violet").lower()
 
-# asyncio queue for the bridge
+# queue to gather results
 async_queue = asyncio.Queue()
-shutdown_event = signal_shutdown()
-
 # communication queues
 request_queue = mp.Queue()
 result_queue = mp.Queue()
 
+# shutdown event
+shutdown_event = signal_shutdown()
 
 # set the favicon
 favicon_headers = Favicon(
     light_icon="/static/logo.png",
-    dark_icon="/static/logo.png"
+    dark_icon="/static/logo.png",
 )
 
 # set the MonsterUI theme
@@ -41,21 +40,18 @@ full_screen_style = Link(rel="stylesheet", href="/static/styles.css")
 # sse to emit transformed images
 sse_script = Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js")
 
-# Create FastHTML app
-hdrs = [theme, favicon_headers, full_screen_style, sse_script]
-app, rt = fast_app(hdrs=hdrs)
+# create the merlin process
+merlin = mp.Process(
+    target=go_merlin,
+    args=(request_queue, result_queue),
+    daemon=True
+)
 
-# polling bridge
-@app.on_startup
-async def startup():
-    # Start the polling bridge
-    asyncio.create_task(poll_result_queue(result_queue, async_queue, shutdown_event))
-
-# Polling bridge function
+# captures merlin's reflections
 async def poll_result_queue(result_queue, async_queue, shutdown_event):
     """Bridge between multiprocessing queue and asyncio queue"""
     while not shutdown_event.is_set():
-        # Non-blocking check for new results
+        # check for new results
         try:
             if not result_queue.empty():
                 result = result_queue.get_nowait()
@@ -66,7 +62,26 @@ async def poll_result_queue(result_queue, async_queue, shutdown_event):
         # Short sleep to prevent CPU spinning
         await asyncio.sleep(0.01)
 
-# Home page route
+async def startup():
+    "Start the merlin process and process any results."
+    merlin.start()
+    asyncio.create_task(poll_result_queue(result_queue, async_queue, shutdown_event))
+
+# gracefully shuts down the app
+async def shutdown():
+    "Merlin can rest."
+    shutdown_event.set()
+    request_queue.put({"type": config.REQUEST_SHUTDOWN})
+
+# create the mirror app
+hdrs = [theme, favicon_headers, full_screen_style, sse_script]
+app, rt = fast_app(
+    hdrs=hdrs,
+    on_startup=startup,
+    on_shutdown=shutdown,
+)
+
+# main page
 @rt('/')
 def index():
     return Title(app_name), Div(
@@ -131,9 +146,9 @@ def refresh_latents():
     })
     return ""  # Empty response for HTMX
 
-# sends the generated image in an sse stream
+# sends the generated images in an sse stream
 async def generate():
-    """Generates SSE events with transformed images"""
+    """Generates SSE events with transformed image results."""
     while not shutdown_event.is_set():
         result = await async_queue.get()
         
@@ -163,22 +178,6 @@ async def generate():
 @rt("/generate")
 async def merlin_looks_into_the_mirror():
     return EventStream(generate())
-
-# gracefully shuts down the app
-@app.on_shutdown
-async def shutdown():
-    print("Web: Shutting down")
-    shutdown_event.set()
-    # merlin can rest
-    request_queue.put({"type": config.REQUEST_SHUTDOWN})
-
-# start merlin
-merlin = mp.Process(
-    target=go_merlin,
-    args=(request_queue, result_queue),
-    daemon=True
-)
-merlin.start()
 
 # setup for graceful shutdown
 def signal_handler(sig, frame):

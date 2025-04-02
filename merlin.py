@@ -4,9 +4,10 @@ from io import BytesIO
 import base64
 import numpy as np
 from PIL import Image
+from mirror_ai.utils import resize
 
 def go_merlin(request_queue, result_queue):
-    """Process that runs the Stable Diffusion model and video capture"""
+    """Processes webcame frames into transformed images."""
     try:
         # Import here to avoid loading these in the web process
         from mirror_ai.pipeline import ImagePipeline
@@ -33,7 +34,7 @@ def go_merlin(request_queue, result_queue):
         
         # Main processing loop
         while running:
-            # Check for new requests (non-blocking)
+            # check for new requests
             try:
                 while not request_queue.empty():
                     request = request_queue.get_nowait()
@@ -54,24 +55,25 @@ def go_merlin(request_queue, result_queue):
                 time.sleep(0.1)
                 continue
                 
-            # Process frame
+            # process camera frames
             try:
                 camera_frame = video_streamer.get_current_frame()
                 if camera_frame is not None:
-                    # Process with stable diffusion
+                    # transform the webcam image
                     processed_frame = pipeline.generate(current_prompt, camera_frame)
                     
-                    # Convert to storable format
+                    # convert to storable format
                     pil_frame = convert_to_pil_image(processed_frame)
-                    pil_frame = pil_frame.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT))
+                    # resize keeping aspect ratio
+                    pil_frame = resize(pil_frame, width=config.DISPLAY_WIDTH, height=config.DISPLAY_HEIGHT)
                     
-                    # Convert to base64 (easier to send through queue)
+                    # turn into base64 (easier to send through queue)
                     img_byte_arr = BytesIO()
                     pil_frame.save(img_byte_arr, format='JPEG', quality=90)
                     img_byte_arr.seek(0)
                     encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
                     
-                    # Send result back
+                    # send the image back
                     result_queue.put({
                         "type": config.RESULT_FRAME,
                         "data": encoded_img

@@ -1,5 +1,6 @@
-import torch
 import time
+from PIL import Image
+import torch
 from diffusers import (
     StableDiffusionXLPipeline,
     StableDiffusionXLControlNetImg2ImgPipeline,
@@ -12,11 +13,9 @@ from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 from torchao.quantization import swap_conv2d_1x1_to_linear
 # from torchao.quantization import apply_dynamic_quant
-from PIL import Image
 
-# Import configuration
 from . import config
-from .utils import get_depth_map, get_pose_map, interpolate_images, convert_to_pil_image, dynamic_quant_filter_fn, conv_filter_fn
+from .utils import get_depth_map, get_pose_map, dynamic_quant_filter_fn, conv_filter_fn
 
 # # Optional Stable-Fast import
 # try:
@@ -50,30 +49,30 @@ torch._inductor.config.coordinate_descent_check_all_directions = True
 
 
 class ImagePipeline:
-    """Encapsulates the SDXL Lightning + ControlNet++ pipeline setup and inference."""
+    """Wraps the SDXL Lightning and ControlNet++ pipeline setup."""
     def __init__(self):
         self.pipeline = None
         self._is_compiled = False
         self._is_warmed_up = False
         self.generator = torch.Generator(device="cpu").manual_seed(config.SEED)
 
-
     def load(self):
         """Loads all models, configures the pipeline, applies optimizations, and warms up."""
         print("--- Starting Pipeline Loading Process ---")
 
-        # --- 1. Load Base SDXL UNet Config ---
-        # We load the config only, as the weights will come from the Lightning checkpoint.
-        print(f"Loading UNet config from {config.SDXL_BASE_MODEL_ID}...")
-        unet_config = UNet2DConditionModel.from_config(config.SDXL_BASE_MODEL_ID, subfolder="unet")
-
-        # --- 2. Load SDXL Lightning UNet ---
-        lightning_ckpt_file = config.LIGHTNING_CKPT_TEMPLATE.format(n_steps=config.N_STEPS)
+        # --- 1. Load SDXL Lightning UNet  ---
         print(f"Loading SDXL Lightning {config.N_STEPS}-Step UNet ({lightning_ckpt_file})...")
-        unet_path = hf_hub_download(config.SDXL_LIGHTNING_REPO_ID, lightning_ckpt_file)
+
+        lightning_ckpt_file = config.LIGHTNING_CKPT_TEMPLATE.format(n_steps=config.N_STEPS)
+
         # Instantiate UNet from config, then load the specific Lightning weights
-        unet = UNet2DConditionModel.from_config(unet_config).to(config.DEVICE, dtype=config.DTYPE)
-        unet.load_state_dict(load_file(unet_path, device=config.DEVICE))
+        unet = UNet2DConditionModel.from_config(config.SDXL_BASE_MODEL_ID, subfolder="unet").to(config.DEVICE, dtype=config.DTYPE)
+        unet.load_state_dict(
+            load_file(
+                hf_hub_download(config.SDXL_LIGHTNING_REPO_ID, lightning_ckpt_file),
+                device=config.DEVICE
+            )
+        )
         print("UNet Loaded and moved to device.")
 
         # --- 2a. Load the fixed VAE ---
@@ -125,9 +124,8 @@ class ImagePipeline:
         self.latents_shape = (batch_size, num_channels_latents, config.DEFAULT_IMAGE_HEIGHT // self.pipeline.vae_scale_factor, config.DEFAULT_IMAGE_WIDTH // self.pipeline.vae_scale_factor)
         self.latents = self.refresh_latents()
 
-        # helpful pipeline setup
+        # --- 7. Apply speedups and warmup the model ---
         self.pipeline.set_progress_bar_config(disable=True)
-        self.pipeline.to(device=config.DEVICE, dtype=config.DTYPE).to(config.DEVICE)
 
         # Fuse the QKV projections in the UNet.
         self.pipeline.fuse_qkv_projections()
@@ -146,9 +144,7 @@ class ImagePipeline:
         self.pipeline.unet = torch.compile(self.pipeline.unet, mode="max-autotune", fullgraph=True)
         self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
 
-
-        # --- 7. Apply speedups and warmup the model ---
-        self._apply_stable_fast()
+        # self._apply_stable_fast()
         self._warmup()
         print("--- Pipeline Loading Process Complete ---")
 
@@ -240,8 +236,8 @@ class ImagePipeline:
             print("Warmup Complete.")
         except Exception as e:
             print(f"Error during warmup: {e}. Performance may be suboptimal.")
-            # Proceeding anyway, but flag that warmup didn't fully complete
-            self._is_warmed_up = False # Or keep True? Let's assume potential partial warmup is okay.
+            # proceed anyway, but flag that warmup didn't fully complete
+            self._is_warmed_up = False 
 
     def generate(
         self,
@@ -277,22 +273,21 @@ class ImagePipeline:
         cn_scale = controlnet_conditioning_scale if controlnet_conditioning_scale is not None else config.CONTROLNET_CONDITIONING_SCALE
 
         # Ensure the conditioning image is appropriately sized (optional, but good practice)
-        # SDXL typically expects 1024x1024. Let's resize if it's different.
-        # Note: This assumes the external pre-processing didn't already handle sizing.
+        # SDXL typically expects 1024x1024.
         if camera_frame.size != (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT):
             print(f"Warning: Conditioning image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
             camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
 
         # get the depth map and pose map
         depth_map = get_depth_map(camera_frame)
-        # pose_map = get_pose_map(camera_frame)
         control_image = depth_map
+
+        # # for both open pose and depth
+        # pose_map = get_pose_map(camera_frame)
+        # control_image = [depth_map, pose_map]
 
         print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
         start_time = time.time()
-
-        # TODO: retrieve current frame from video stream
-        camera_frame = None
 
         try:
             with torch.no_grad():
@@ -327,7 +322,6 @@ class ImagePipeline:
 
         except Exception as e:
             print(f"Error during pipeline inference: {e}")
-            # Re-raise or handle more gracefully depending on application needs
             raise RuntimeError("Failed to generate image.") from e
         
     def get_latents(self):
