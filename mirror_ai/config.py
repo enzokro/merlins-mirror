@@ -5,8 +5,22 @@ import torch
 SDXL_BASE_MODEL_ID = "stabilityai/stable-diffusion-xl-base-1.0"
 # Repository containing the SDXL Lightning UNet checkpoints
 SDXL_LIGHTNING_REPO_ID = "ByteDance/SDXL-Lightning"
-# ControlNet++ model repository
-CONTROLNET_MODEL_ID = "xinsir/controlnet-union-sdxl-1.0"
+
+# --- ControlNet Configuration ---
+# Cache directories for models and preprocessors
+CONTROLNET_CACHE_DIR = "/app/mirror_ai/models/controlnet-cache"
+CONTROLNET_PREPROCESSOR_CACHE = "/app/mirror_ai/models/controlnet-preprocessor-cache"
+
+# ControlNet model repositories
+CONTROLNET_MODEL_ID = "xinsir/controlnet-union-sdxl-1.0"  # Legacy, keeping for reference
+CONTROLNET_DEPTH = "diffusers/controlnet-depth-sdxl-1.0-small"
+CONTROLNET_POSE = "thibaud/controlnet-openpose-sdxl-1.0"
+
+# List of active controlnets (uncomment to enable)
+CONTROLNETS = [
+    CONTROLNET_DEPTH,
+    # CONTROLNET_POSE,
+]
 
 # Random seed for reproducibility
 SEED = 12297829382473034410 
@@ -24,17 +38,11 @@ DTYPE = torch.float16
 # --- Inference Parameters ---
 # Guidance scale. MUST be 0.0 for SDXL Lightning/Turbo models.
 GUIDANCE_SCALE = 0.0
-
-# Controlnet setup
-CONTROLNET_DEPTH = "diffusers/controlnet-depth-sdxl-1.0"
-CONTROLNET_POSE = "thibaud/controlnet-openpose-sdxl-1.0"
-
-CONTROLNETS = [
-    CONTROLNET_DEPTH,
-    # CONTROLNET_POSE,
-]
-# Conditioning scale for ControlNet. Balances prompt vs. control image influence. (Tunable)
-CONTROLNET_CONDITIONING_SCALE = 0.5 # Default value, can be adjusted
+# ControlNet parameters
+CONTROLNET_CONDITIONING_SCALE = 0.75  # Balances prompt vs. control image influence
+CONTROL_GUIDANCE_START = 0.0  # When ControlNet conditioning starts (0.0 = beginning)
+CONTROL_GUIDANCE_END = 1.0  # When ControlNet conditioning ends (1.0 = end)
+STRENGTH = 0.8  # Image-to-image strength
 
 # --- Scheduler Configuration ---
 # Timestep spacing strategy. MUST be "trailing" for SDXL Lightning UNets (except 1-step).
@@ -97,4 +105,10 @@ CAMERA_FPS = 30
 # Frame processing if we need it
 FRAME_BLEND = 0.7  # Blending factor for frame interpolation (higher = smoother but more latency)
 FRAME_SKIP = 2  # Only send every nth frame to reduce bandwidth
+
+# ControlNet preprocessor settings
+CONTROLNET_PREPROCESSOR_ANNOTATORS = {
+    "depth": "depth_midas",
+    "pose": "openpose"
+}
 

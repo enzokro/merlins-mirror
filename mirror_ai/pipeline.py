@@ -16,7 +16,8 @@ from torchao.quantization import swap_conv2d_1x1_to_linear
 # from torchao.quantization import apply_dynamic_quant
 
 from . import config
-from .utils import get_depth_map, get_pose_map, dynamic_quant_filter_fn, conv_filter_fn
+from .utils import dynamic_quant_filter_fn, conv_filter_fn
+from .controlnet import ControlNetPreprocessor, ControlNetModels
 
 # small torch speedups for compilation
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -61,6 +62,10 @@ class ImagePipeline:
         self._is_compiled = False
         self._is_warmed_up = False
         self.generator = torch.Generator(device="cpu").manual_seed(config.SEED)
+        
+        # Initialize ControlNet preprocessor and models
+        self.controlnet_preprocessor = None
+        self.controlnet_models = None
 
     def load(self):
         """Loads all models, configures the pipeline, applies optimizations, and warms up."""
@@ -89,17 +94,16 @@ class ImagePipeline:
             torch_dtype=torch.float16
         )
 
-        # --- 3. Load ControlNet++ ---
-        controlnet = []
-        for cnet in config.CONTROLNETS:
-            print(f"Loading ControlNet ({cnet})...")
-            controlnet_model = ControlNetModel.from_pretrained(
-                cnet,
-                torch_dtype=config.DTYPE
-            ).to(config.DEVICE)
-            controlnet.append(controlnet_model)
+        # --- 3. Load ControlNet Models ---
+        print("Loading ControlNet models...")
+        self.controlnet_models = ControlNetModels()
+        controlnet = self.controlnet_models.get_active_models()
+        
         if len(controlnet) == 1:
-            controlnet = controlnet[0]
+            controlnet = controlnet[0]  # Use single model if only one is active
+        
+        # Initialize the preprocessor
+        self.controlnet_preprocessor = ControlNetPreprocessor()
 
         # --- 4. Create the Full Pipeline with Injected UNet and ControlNet ---
         print("Instantiating StableDiffusionXLPipeline...")
@@ -107,7 +111,7 @@ class ImagePipeline:
         pipeline = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(
             config.SDXL_BASE_MODEL_ID,
             unet=unet,                  # Inject the loaded Lightning UNet
-            controlnet=controlnet,  # Inject the loaded ControlNet
+            controlnet=controlnet,      # Inject the loaded ControlNet
             vae=vae,                    # Inject the fixed VAE
             torch_dtype=config.DTYPE,
             use_safetensors=True,
@@ -140,7 +144,11 @@ class ImagePipeline:
 
         if config.DEVICE != "mps":
             self.pipeline.unet.to(memory_format=torch.channels_last)
-            self.pipeline.controlnet.to(memory_format=torch.channels_last)
+            if isinstance(self.pipeline.controlnet, list):
+                for cn in self.pipeline.controlnet:
+                    cn.to(memory_format=torch.channels_last)
+            else:
+                self.pipeline.controlnet.to(memory_format=torch.channels_last)
 
         # TODO: figure out dynamic quantization
         # swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
@@ -192,6 +200,30 @@ class ImagePipeline:
             # proceed anyway, but flag that warmup didn't fully complete
             self._is_warmed_up = False 
 
+    def _process_control_images(self, camera_frame):
+        """
+        Process control images for each active ControlNet.
+        
+        Args:
+            camera_frame (PIL.Image): Input camera frame
+            
+        Returns:
+            list or PIL.Image: Processed control images
+        """
+        # Get active control types
+        control_types = []
+        for model_path in config.CONTROLNETS:
+            if model_path == config.CONTROLNET_DEPTH:
+                control_types.append("depth")
+            elif model_path == config.CONTROLNET_POSE:
+                control_types.append("pose")
+        
+        # Process control images
+        if len(control_types) == 1:
+            return self.controlnet_preprocessor.process_control_image(camera_frame, control_types[0])
+        else:
+            return [self.controlnet_preprocessor.process_control_image(camera_frame, ct) for ct in control_types]
+
     def generate(
         self,
         prompt: str,
@@ -231,13 +263,8 @@ class ImagePipeline:
             print(f"Warning: Conditioning image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
             camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
 
-        # get the depth map and pose map
-        depth_map = get_depth_map(camera_frame)
-        control_image = depth_map
-
-        # # for both open pose and depth
-        # pose_map = get_pose_map(camera_frame)
-        # control_image = [depth_map, pose_map]
+        # Process control images based on active ControlNets
+        control_image = self._process_control_images(camera_frame)
 
         print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
         start_time = time.time()
@@ -247,22 +274,18 @@ class ImagePipeline:
                 output_image = self.pipeline(
                     prompt=prompt,
 
-                    # ## For ControlNetImg2ImgPipeline
+                    # For ControlNetImg2ImgPipeline
                     image=camera_frame,
                     control_image=control_image,
 
-                    # ## For StableDiffusionXLPipeline
-                    # image=control_image,
-
                     num_inference_steps=steps,
 
-                    # MOVING OVER VALUES FROM BEFORE
-                    controlnet_conditioning_scale=0.75,
-                    control_guidance_start=0.0,
-                    control_guidance_end=1.0,
-                    strength=0.8,
-                    guidance_scale=0.0,
-
+                    # ControlNet parameters
+                    controlnet_conditioning_scale=cn_scale,
+                    control_guidance_start=config.CONTROL_GUIDANCE_START,
+                    control_guidance_end=config.CONTROL_GUIDANCE_END,
+                    strength=config.STRENGTH,
+                    guidance_scale=g_scale,
 
                     negative_prompt=config.NEGATIVE_PROMPT,
                     generator=self.generator,

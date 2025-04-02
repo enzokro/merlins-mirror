@@ -5,4 +5,7 @@ PORT=10295
 WEBSOCKET_CORS="*"
 
 HF_HOME="/app/mirror_ai/models/"
+HF_HUB_CACHE="/app/mirror_ai/models/hub"
+HF_XET_CACHE="/app/mirror_ai/models/xet"
+HF_ASSETS_CACHE="/app/mirror_ai/models/assets"
 
