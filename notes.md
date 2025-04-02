@@ -5,3 +5,7 @@ The StableDiffusionXLControlNetImg2ImgPipeline will work best, since we're gener
 The StableDiffusionXLPipeline will work best for generating a frame from just the prompt and the conditioning image.
 
 Need to experiment to find out which looks better, and which is actually realtime.
+
+# Command that works on a linux machine, as long as the nvidia-toolkit is installed
+
+NOTE: must pass --gpus all to docker run to get the GPU working.
