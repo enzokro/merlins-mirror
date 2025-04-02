@@ -76,7 +76,7 @@ def go_merlin(request_queue, result_queue):
                     # convert to storable format
                     pil_frame = convert_to_pil_image(processed_frame)
                     # resize keeping aspect ratio
-                    pil_frame = resize(pil_frame, width=config.DISPLAY_WIDTH, height=config.DISPLAY_HEIGHT)
+                    pil_frame = pil_frame.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT))
                     
                     # turn into base64 (easier to send through queue)
                     img_byte_arr = BytesIO()

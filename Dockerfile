@@ -88,6 +88,9 @@ EXPOSE 10295
 # Final check for CUDA - this command should succeed if CUDA is set up correctly.
 RUN which nvcc
 
+# install cv2 dependencies
+RUN apt-get update && apt-get install ffmpeg libsm6 libxext6  -y
+
 # copy the project files, put here for cache purposes
 COPY .docker_env .env
 COPY static static

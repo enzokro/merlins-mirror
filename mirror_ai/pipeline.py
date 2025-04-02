@@ -147,8 +147,8 @@ class ImagePipeline:
         # apply_dynamic_quant(self.pipeline.vae, dynamic_quant_filter_fn)
 
         # Compile the UNet and VAE.
-        self.pipeline.unet = torch.compile(self.pipeline.unet, mode="max-autotune", fullgraph=True)
-        self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
+        # self.pipeline.unet = torch.compile(self.pipeline.unet, mode="max-autotune", fullgraph=True)
+        # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
 
         # self._apply_stable_fast()
         self._warmup()
