@@ -13,3 +13,5 @@ wheels/
 project_references/
 models/*
 .sesskey
+controlnet-cache/
+controlnet-preprocessor-cache/
