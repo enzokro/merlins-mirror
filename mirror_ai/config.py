@@ -9,11 +9,11 @@ SDXL_LIGHTNING_REPO_ID = "ByteDance/SDXL-Lightning"
 # --- ControlNet Configuration ---
 # Cache directories for models and preprocessors
 # DOCKER
-# CONTROLNET_CACHE_DIR = "/app/mirror_ai/models/controlnet-cache"
-# CONTROLNET_PREPROCESSOR_CACHE = "/app/mirror_ai/models/controlnet-preprocessor-cache"
+CONTROLNET_CACHE_DIR = "/app/mirror_ai/models/controlnet-cache"
+CONTROLNET_PREPROCESSOR_CACHE = "/app/mirror_ai/models/controlnet-preprocessor-cache"
 # LOCAL
-CONTROLNET_CACHE_DIR = "/Users/cck/projects/mirror-ai/models/controlnet-cache"
-CONTROLNET_PREPROCESSOR_CACHE = "/Users/cck/projects/mirror-ai/models/controlnet-preprocessor-cache"
+# CONTROLNET_CACHE_DIR = "/Users/cck/projects/mirror-ai/models/controlnet-cache"
+# CONTROLNET_PREPROCESSOR_CACHE = "/Users/cck/projects/mirror-ai/models/controlnet-preprocessor-cache"
 
 # ControlNet model repositories
 CONTROLNET_MODEL_ID = "xinsir/controlnet-union-sdxl-1.0"  # Legacy, keeping for reference
