@@ -82,9 +82,7 @@ JPEG_QUALITY = 75
 
     
 # Video settings
-CAMERA_INDEX = 0  # Webcam index (0 for default camera)
-FRAME_BLEND = 0.7  # Blending factor for frame interpolation (higher = smoother but more latency)
-FRAME_SKIP = 2  # Only send every nth frame to reduce bandwidth
+CAMERA_ID = 0  # Webcam index (0 for default camera)
 
 # todo: play around with capture settings for speed/quality
 
@@ -94,4 +92,8 @@ CAMERA_HEIGHT = DISPLAY_HEIGHT #DEFAULT_IMAGE_HEIGHT  # Height for model input/o
 
 # FPS for the video stream
 CAMERA_FPS = 30
+
+# Frame processing if we need it
+FRAME_BLEND = 0.7  # Blending factor for frame interpolation (higher = smoother but more latency)
+FRAME_SKIP = 2  # Only send every nth frame to reduce bandwidth
 
