@@ -35,28 +35,8 @@ torch._inductor.config.coordinate_descent_check_all_directions = True
 # torch._inductor.config.use_mixed_mm = True
 
 load_dotenv()
-IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
-
-
 print(f"MODEL SETUP (device, dtype): {config.DEVICE}, {config.DTYPE}")
-
-def HWC3(x):
-    assert x.dtype == np.uint8
-    if x.ndim == 2:
-        x = x[:, :, None]
-    assert x.ndim == 3
-    H, W, C = x.shape
-    assert C == 1 or C == 3 or C == 4
-    if C == 3:
-        return x
-    if C == 1:
-        return np.concatenate([x, x, x], axis=2)
-    if C == 4:
-        color = x[:, :, 0:3].astype(np.float32)
-        alpha = x[:, :, 3:4].astype(np.float32) / 255.0
-        y = color * alpha + 255.0 * (1.0 - alpha)
-        y = y.clip(0, 255).astype(np.uint8)
-        return y
+IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 
 class ImagePipeline:
     """Wraps the SDXL Lightning and ControlNet++ pipeline setup."""
@@ -80,7 +60,6 @@ class ImagePipeline:
         lightning_ckpt_file = config.LIGHTNING_CKPT_TEMPLATE.format(n_steps=config.N_STEPS)
 
         # Instantiate UNet from config, then load the specific Lightning weights
-        # unet = UNet2DConditionModel.from_config(config.SDXL_BASE_MODEL_ID, subfolder="unet").to(config.DEVICE, dtype=config.DTYPE)
         unet_config = UNet2DConditionModel.load_config(config.SDXL_BASE_MODEL_ID, subfolder="unet")
         unet = UNet2DConditionModel.from_config(unet_config).to(config.DEVICE, dtype=config.DTYPE)
         unet.load_state_dict(
@@ -96,25 +75,26 @@ class ImagePipeline:
         print("Loading ControlNet models...")
         self.controlnet_models = ControlNetModels()
         controlnet = self.controlnet_models.get_active_models()
+        if len(controlnet) == 1:
+            controlnet = controlnet[0]
+        # Initialize the controlnet preprocessor
+        self.controlnet_preprocessor = ControlNetPreprocessor()
 
         # load the vae
         vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
         vae.to(config.DEVICE)
 
-        # Initialize the preprocessor
-        self.controlnet_preprocessor = ControlNetPreprocessor()
-
-        # --- 4. Create the Full Pipeline with Injected UNet and ControlNet ---
+        # --- 4. Create the Full Pipeline with Injected UNet, ControlNet, and VAE ---
         print("Instantiating StableDiffusionXLPipeline...")
         pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
             config.SDXL_BASE_MODEL_ID,
             unet=unet,                  # Inject the loaded Lightning UNet
             controlnet=controlnet,      # Inject the loaded ControlNet
-            vae=vae, # Inject the loaded VAE
+            vae=vae,                    # Inject the loaded VAE
             torch_dtype=config.DTYPE,
             use_safetensors=True,
             safety_checker=None,
-            variant="fp16"              # Standard practice for SDXL
+            variant="fp16"              
         ).to(config.DEVICE)
         print("Pipeline Instantiated and moved to device.")
 
@@ -156,8 +136,8 @@ class ImagePipeline:
         # apply_dynamic_quant(self.pipeline.vae, dynamic_quant_filter_fn)
 
         # Compile the UNet and VAE.
-        self.pipeline.unet = torch.compile(self.pipeline.unet, mode="max-autotune", fullgraph=True)
-        self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
+        # self.pipeline.unet = torch.compile(self.pipeline.unet, mode="max-autotune", fullgraph=True)
+        # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
 
         print("--- Pipeline Loading Process Complete ---") 
 
@@ -222,9 +202,9 @@ class ImagePipeline:
 
         # Ensure the conditioning image is appropriately sized (optional, but good practice)
         # SDXL typically expects 1024x1024.
-        # if camera_frame.size != (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT):
+        if camera_frame.size != (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT):
             # print(f"Warning: Image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
-            # camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
+            camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
 
         # width, height = camera_frame.size
         # ratio = np.sqrt(config.DEFAULT_IMAGE_WIDTH * config.DEFAULT_IMAGE_HEIGHT / (width * height))
@@ -266,6 +246,7 @@ class ImagePipeline:
             ratio = np.sqrt( (config.DEFAULT_IMAGE_HEIGHT * config.DEFAULT_IMAGE_WIDTH) / (height * width))
             new_width, new_height = int(width * ratio), int(height * ratio)
             control_img = cv2.resize(np.asarray(control_img), (new_width, new_height))
+            control_img = Image.fromarray(control_img)
 
 
         # control_img.save(f'{IMAGE_DEBUG_PATH}/control_image_shape_{control_img.size}.jpg')
