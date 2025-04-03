@@ -9,3 +9,7 @@ HF_HUB_CACHE="/app/mirror_ai/models/hub"
 HF_XET_CACHE="/app/mirror_ai/models/xet"
 HF_ASSETS_CACHE="/app/mirror_ai/models/assets"
 
+IMAGE_DEBUG_PATH="/app/persist"
+
+
+

@@ -10,6 +10,9 @@ from huggingface_hub import hf_hub_download
 from diffusers.utils.torch_utils import randn_tensor
 from safetensors.torch import load_file
 from torchao.quantization import swap_conv2d_1x1_to_linear
+from dotenv import load_dotenv
+import os
+
 # from torchao.quantization import apply_dynamic_quant
 
 from . import config
@@ -26,6 +29,8 @@ from .controlnet import ControlNetPreprocessor, ControlNetModels
 # torch._inductor.config.force_fuse_int_mm_with_mul = True
 # torch._inductor.config.use_mixed_mm = True
 
+load_dotenv()
+IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 
 
 print(f"MODEL SETUP (device, dtype): {config.DEVICE}, {config.DTYPE}")
@@ -88,7 +93,7 @@ class ImagePipeline:
 
         # --- 5. Configure the Scheduler (CRITICAL for SDXL Lightning) ---
         print(f"Configuring Scheduler (EulerDiscrete, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
-        pipeline.scheduler = EulerDiscreteScheduler.from_config(
+        pipeline.scheduler = config.SCHEDULERS[config.SCHEDULER_NAME].from_config(
             pipeline.scheduler.config,
             timestep_spacing=config.SCHEDULER_TIMESTEP_SPACING
             # If using 1-step model, add: prediction_type=config.SCHEDULER_PREDICTION_TYPE
@@ -159,7 +164,8 @@ class ImagePipeline:
         camera_frame: Image.Image,
         num_inference_steps: int = None,
         guidance_scale: float = None,
-        controlnet_conditioning_scale: float = None
+        controlnet_conditioning_scale: float = None,
+        strength: float = None
     ) -> Image.Image:
         """
         Generates an image based on the prompt and conditioning image.
@@ -185,6 +191,7 @@ class ImagePipeline:
         steps = num_inference_steps if num_inference_steps is not None else config.N_STEPS
         g_scale = guidance_scale if guidance_scale is not None else config.GUIDANCE_SCALE
         cn_scale = controlnet_conditioning_scale if controlnet_conditioning_scale is not None else config.CONTROLNET_CONDITIONING_SCALE
+        strength = strength if strength is not None else config.STRENGTH
 
         # Ensure the conditioning image is appropriately sized (optional, but good practice)
         # SDXL typically expects 1024x1024.
@@ -194,7 +201,9 @@ class ImagePipeline:
 
         # Process control images based on active ControlNets
         control_image = self._process_control_images(camera_frame)
+        control_image = control_image.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
         print(f"Control image type: {type(control_image)}")
+        control_image.save(f'{IMAGE_DEBUG_PATH}/control_image.jpg')
 
         print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
         start_time = time.time()
@@ -211,11 +220,11 @@ class ImagePipeline:
                     num_inference_steps=steps,
 
                     # ControlNet parameters
+                    guidance_scale=g_scale,
                     controlnet_conditioning_scale=cn_scale,
+                    strength=strength,
                     control_guidance_start=config.CONTROL_GUIDANCE_START,
                     control_guidance_end=config.CONTROL_GUIDANCE_END,
-                    strength=config.STRENGTH,
-                    guidance_scale=g_scale,
 
                     negative_prompt=config.NEGATIVE_PROMPT,
                     generator=self.generator,

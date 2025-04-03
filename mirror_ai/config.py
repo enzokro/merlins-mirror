@@ -1,4 +1,17 @@
 import torch
+from diffusers import (
+    DDIMScheduler,
+    DPMSolverMultistepScheduler,
+    EulerAncestralDiscreteScheduler,
+    EulerDiscreteScheduler,
+    HeunDiscreteScheduler,
+    PNDMScheduler,
+)
+
+class KarrasDPM:
+    def from_config(config):
+        return DPMSolverMultistepScheduler.from_config(config, use_karras_sigmas=True)
+
 
 # --- Core Model Identifiers ---
 # Base SDXL model used for components like VAE and text encoders
@@ -9,11 +22,11 @@ SDXL_LIGHTNING_REPO_ID = "ByteDance/SDXL-Lightning"
 # --- ControlNet Configuration ---
 # Cache directories for models and preprocessors
 # DOCKER
-CONTROLNET_CACHE_DIR = "/app/mirror_ai/models/controlnet-cache"
-CONTROLNET_PREPROCESSOR_CACHE = "/app/mirror_ai/models/controlnet-preprocessor-cache"
+# CONTROLNET_CACHE_DIR = "/app/mirror_ai/models/controlnet-cache"
+# CONTROLNET_PREPROCESSOR_CACHE = "/app/mirror_ai/models/controlnet-preprocessor-cache"
 # LOCAL
-# CONTROLNET_CACHE_DIR = "/Users/cck/projects/mirror-ai/models/controlnet-cache"
-# CONTROLNET_PREPROCESSOR_CACHE = "/Users/cck/projects/mirror-ai/models/controlnet-preprocessor-cache"
+CONTROLNET_CACHE_DIR = "/Users/cck/projects/mirror-ai/models/controlnet-cache"
+CONTROLNET_PREPROCESSOR_CACHE = "/Users/cck/projects/mirror-ai/models/controlnet-preprocessor-cache"
 
 # ControlNet model repositories
 CONTROLNET_MODEL_ID = "xinsir/controlnet-union-sdxl-1.0"  # Legacy, keeping for reference
@@ -46,7 +59,21 @@ GUIDANCE_SCALE = 0.0
 CONTROLNET_CONDITIONING_SCALE = 0.75  # Balances prompt vs. control image influence
 CONTROL_GUIDANCE_START = 0.0  # When ControlNet conditioning starts (0.0 = beginning)
 CONTROL_GUIDANCE_END = 1.0  # When ControlNet conditioning ends (1.0 = end)
-STRENGTH = 0.8  # Image-to-image strength
+STRENGTH = 0.75  # Image-to-image strength
+
+SCHEDULERS = {
+    "DDIM": DDIMScheduler,
+    "DPMSolverMultistep": DPMSolverMultistepScheduler,
+    "HeunDiscrete": HeunDiscreteScheduler,
+    "KarrasDPM": KarrasDPM,
+    "K_EULER_ANCESTRAL": EulerAncestralDiscreteScheduler,
+    "K_EULER": EulerDiscreteScheduler,
+    "PNDM": PNDMScheduler,
+}
+
+SCHEDULER_NAME = "K_EULER"
+SCHEDULER_TIMESTEPS = "trailing"
+
 
 # --- Scheduler Configuration ---
 # Timestep spacing strategy. MUST be "trailing" for SDXL Lightning UNets (except 1-step).
