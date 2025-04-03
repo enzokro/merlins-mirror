@@ -202,9 +202,9 @@ class ImagePipeline:
 
         # Ensure the conditioning image is appropriately sized (optional, but good practice)
         # SDXL typically expects 1024x1024.
-        if camera_frame.size != (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT):
+        # if camera_frame.size != (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT):
             # print(f"Warning: Image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
-            camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
+            # camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
 
         # width, height = camera_frame.size
         # ratio = np.sqrt(config.DEFAULT_IMAGE_WIDTH * config.DEFAULT_IMAGE_HEIGHT / (width * height))

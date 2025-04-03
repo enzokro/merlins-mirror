@@ -80,7 +80,7 @@ SCHEDULERS = {
     "PNDM": PNDMScheduler,
 }
 
-SCHEDULER_NAME = "K_EULER"
+SCHEDULER_NAME = "K_EULER_ANCESTRAL"
 
 # --- Scheduler Configuration ---
 # Timestep spacing strategy. MUST be "trailing" for SDXL Lightning UNets (except 1-step).
