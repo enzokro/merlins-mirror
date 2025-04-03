@@ -30,15 +30,15 @@ class ControlNetPreprocessor:
         return MidasDetector.from_pretrained(
             "lllyasviel/Annotators",
             cache_dir=config.CONTROLNET_PREPROCESSOR_CACHE,
-        )
+        ).to(config.DEVICE)
 
     def initialize_pose_detector(self):
         """Initialize the OpenPose detector."""
         print("Initializing OpenPose detector...")
         return OpenposeDetector.from_pretrained(
-            "lllyasviel/Annotators",
+            "lllyasviel/ControlNet",
             cache_dir=config.CONTROLNET_PREPROCESSOR_CACHE,
-        )
+        ).to(config.DEVICE)
 
     def get_depth_map(self, image):
         """
@@ -68,7 +68,7 @@ class ControlNetPreprocessor:
         if "pose" not in self.annotators:
             self.annotators["pose"] = self.initialize_pose_detector()
         
-        return self.annotators["pose"](image)
+        return self.annotators["pose"](image, hand_and_face=False)
     
     def process_control_image(self, image, control_type):
         """

@@ -14,33 +14,22 @@ class ControlNetModels:
         # Ensure cache directory exists
         os.makedirs(config.CONTROLNET_CACHE_DIR, exist_ok=True)
         
-        # Initialize model containers (lazy-loading)
-        self._depth_model = None
-        self._pose_model = None
+        models = []
+        for model_path in config.CONTROLNETS:
+            models.append(self.get_model(model_path))
+
+        self.models = models
+
     
-    @property
-    def depth_model(self):
-        """Lazy-loaded depth ControlNet model."""
-        if self._depth_model is None:
-            print(f"Loading depth ControlNet model from {config.CONTROLNET_DEPTH}...")
-            self._depth_model = ControlNetModel.from_pretrained(
-                config.CONTROLNET_DEPTH,
-                torch_dtype=config.DTYPE,
-                cache_dir=config.CONTROLNET_CACHE_DIR
-            ).to(config.DEVICE)
-        return self._depth_model
+    def get_model(self, model_path):
+        print(f"Loading depth ControlNet model from {model_path}...")
+        model = ControlNetModel.from_pretrained(
+            model_path,
+            torch_dtype=config.DTYPE,
+            cache_dir=config.CONTROLNET_CACHE_DIR
+        ).to(config.DEVICE)
+        return model
     
-    @property
-    def pose_model(self):
-        """Lazy-loaded pose ControlNet model."""
-        if self._pose_model is None:
-            print(f"Loading pose ControlNet model from {config.CONTROLNET_POSE}...")
-            self._pose_model = ControlNetModel.from_pretrained(
-                config.CONTROLNET_POSE,
-                torch_dtype=config.DTYPE,
-                cache_dir=config.CONTROLNET_CACHE_DIR
-            ).to(config.DEVICE)
-        return self._pose_model
     
     def get_active_models(self):
         """
@@ -49,14 +38,8 @@ class ControlNetModels:
         Returns:
             list: List of initialized ControlNet models
         """
-        models = []
-        for model_path in config.CONTROLNETS:
-            if model_path == config.CONTROLNET_DEPTH:
-                models.append(self.depth_model)
-            elif model_path == config.CONTROLNET_POSE:
-                models.append(self.pose_model)
-        
-        return models
+        return self.models
+
     
     def get_single_model(self):
         """

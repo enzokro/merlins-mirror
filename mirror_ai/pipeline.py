@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from diffusers import (
     StableDiffusionXLControlNetImg2ImgPipeline,
-    StableDiffusionControlNetPipeline,
+    StableDiffusionXLControlNetPipeline,
     UNet2DConditionModel,
     AutoencoderKL,
     # AutoPipelineForImage2Image,
@@ -25,11 +25,11 @@ from .utils import dynamic_quant_filter_fn, conv_filter_fn
 from .controlnet import ControlNetPreprocessor, ControlNetModels
 
 # small torch speedups for compilation
-# torch.backends.cuda.matmul.allow_tf32 = True
-# torch._inductor.config.conv_1x1_as_mm = True
-# torch._inductor.config.coordinate_descent_tuning = True
-# torch._inductor.config.epilogue_fusion = False
-# torch._inductor.config.coordinate_descent_check_all_directions = True
+torch.backends.cuda.matmul.allow_tf32 = True
+torch._inductor.config.conv_1x1_as_mm = True
+torch._inductor.config.coordinate_descent_tuning = True
+torch._inductor.config.epilogue_fusion = False
+torch._inductor.config.coordinate_descent_check_all_directions = True
 # # for the linear swaps
 # torch._inductor.config.force_fuse_int_mm_with_mul = True
 # torch._inductor.config.use_mixed_mm = True
@@ -94,25 +94,19 @@ class ImagePipeline:
 
         # --- 3. Load ControlNet Models ---
         print("Loading ControlNet models...")
-        # self.depth_processor = ZoeDetector.from_pretrained("lllyasviel/Annotators")
-        # self.processor_midas = MidasDetector.from_pretrained("lllyasviel/Annotators")
         self.controlnet_models = ControlNetModels()
-        controlnet = self.controlnet_models.get_active_models()[0]
-        # controlnet = ControlNetModel.from_pretrained(
-        #     # "xinsir/controlnet-canny-sdxl-1.0",
-        #     "xinsir/controlnet-depth-sdxl-1.0",
-        #     torch_dtype=torch.float16
-        # )
+        controlnet = self.controlnet_models.get_active_models()
 
         # load the vae
         vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
+        vae.to(config.DEVICE)
 
         # Initialize the preprocessor
         self.controlnet_preprocessor = ControlNetPreprocessor()
 
         # --- 4. Create the Full Pipeline with Injected UNet and ControlNet ---
         print("Instantiating StableDiffusionXLPipeline...")
-        pipeline = StableDiffusionControlNetPipeline.from_pretrained(
+        pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
             config.SDXL_BASE_MODEL_ID,
             unet=unet,                  # Inject the loaded Lightning UNet
             controlnet=controlnet,      # Inject the loaded ControlNet
@@ -145,7 +139,7 @@ class ImagePipeline:
         self.pipeline.set_progress_bar_config(disable=True)
 
         # # Fuse the QKV projections in the UNet.
-        # self.pipeline.fuse_qkv_projections()
+        self.pipeline.fuse_qkv_projections()
 
         if config.DEVICE != "mps":
             self.pipeline.unet.to(memory_format=torch.channels_last)
@@ -156,14 +150,14 @@ class ImagePipeline:
                 self.pipeline.controlnet.to(memory_format=torch.channels_last)
 
         # TODO: figure out dynamic quantization
-        # swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
-        # swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
+        swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
+        swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
         # apply_dynamic_quant(self.pipeline.unet, dynamic_quant_filter_fn)
         # apply_dynamic_quant(self.pipeline.vae, dynamic_quant_filter_fn)
 
         # Compile the UNet and VAE.
-        # self.pipeline.unet = torch.compile(self.pipeline.unet, mode="max-autotune", fullgraph=True)
-        # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
+        self.pipeline.unet = torch.compile(self.pipeline.unet, mode="max-autotune", fullgraph=True)
+        self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
 
         print("--- Pipeline Loading Process Complete ---") 
 
@@ -228,9 +222,9 @@ class ImagePipeline:
 
         # Ensure the conditioning image is appropriately sized (optional, but good practice)
         # SDXL typically expects 1024x1024.
-        if camera_frame.size != (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT):
-            print(f"Warning: Image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
-            camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
+        # if camera_frame.size != (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT):
+            # print(f"Warning: Image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
+            # camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
 
         # width, height = camera_frame.size
         # ratio = np.sqrt(config.DEFAULT_IMAGE_WIDTH * config.DEFAULT_IMAGE_HEIGHT / (width * height))
@@ -255,13 +249,37 @@ class ImagePipeline:
 
         # # Process control images based on active ControlNets
         control_img = self._process_control_images(camera_frame)
-        control_img = control_img.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT), resample=Image.Resampling.NEAREST)
+        # control_img = control_img.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT), resample=Image.Resampling.NEAREST)
         # print(f"Control image type: {type(control_image)}")
 
-        control_img.save(f'{IMAGE_DEBUG_PATH}/control_image_shape_{control_img.size}.jpg')
+        if type(control_img) is list:
+            new_imgs = []
+            for cimg in control_img:
+                width, height = cimg.size
+                ratio = np.sqrt( (config.DEFAULT_IMAGE_HEIGHT * config.DEFAULT_IMAGE_WIDTH) / (height * width))
+                new_width, new_height = int(width * ratio), int(height * ratio)
+                new_img = cv2.resize(np.asarray(cimg), (new_width, new_height))
+                new_imgs.append(Image.fromarray(new_img))
+            control_img = new_imgs
+        else:
+            width, height = control_img.size
+            ratio = np.sqrt( (config.DEFAULT_IMAGE_HEIGHT * config.DEFAULT_IMAGE_WIDTH) / (height * width))
+            new_width, new_height = int(width * ratio), int(height * ratio)
+            control_img = cv2.resize(np.asarray(control_img), (new_width, new_height))
 
-        print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
-        start_time = time.time()
+
+        # control_img.save(f'{IMAGE_DEBUG_PATH}/control_image_shape_{control_img.size}.jpg')
+
+        # print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
+        # start_time = time.time()
+
+        control_start = config.CONTROL_GUIDANCE_START
+        control_end = config.CONTROL_GUIDANCE_END
+
+        if len(config.CONTROLNETS) > 1:
+            control_start = [control_start, control_start]
+            control_end = [control_end, control_end]
+            cn_scale = [cn_scale, cn_scale]
 
         try:
             with torch.no_grad():
@@ -281,9 +299,8 @@ class ImagePipeline:
                     # ControlNet parameters
                     guidance_scale=g_scale,
                     controlnet_conditioning_scale=cn_scale,
-                    strength=strength,
-                    control_guidance_start=config.CONTROL_GUIDANCE_START,
-                    control_guidance_end=config.CONTROL_GUIDANCE_END,
+                    control_guidance_start=control_start,
+                    control_guidance_end=control_end,
 
                     negative_prompt=config.NEGATIVE_PROMPT,
                     generator=self.generator,
@@ -296,10 +313,10 @@ class ImagePipeline:
                     height=config.DEFAULT_IMAGE_HEIGHT,
                     output_type="pil",
                 ).images[0]
-            output_image.save(f'{IMAGE_DEBUG_PATH}/output_image_shape_{output_image.size}.jpg')
+            # output_image.save(f'{IMAGE_DEBUG_PATH}/output_image_shape_{output_image.size}.jpg')
 
-            end_time = time.time()
-            print(f"Inference finished in {end_time - start_time:.3f} seconds.")
+            # end_time = time.time()
+            # print(f"Inference finished in {end_time - start_time:.3f} seconds.")
             return output_image
 
         except Exception as e:
