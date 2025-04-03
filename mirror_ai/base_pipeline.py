@@ -1,15 +1,23 @@
 import time
+import cv2
 from PIL import Image
+import numpy as np
 import torch
 from diffusers import (
     StableDiffusionXLControlNetImg2ImgPipeline,
+    AutoPipelineForText2Image,
     UNet2DConditionModel,
-    EulerDiscreteScheduler,
+    AutoencoderKL,
+    AutoPipelineForImage2Image,
 )
+from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 from huggingface_hub import hf_hub_download
 from diffusers.utils.torch_utils import randn_tensor
 from safetensors.torch import load_file
 from torchao.quantization import swap_conv2d_1x1_to_linear
+from dotenv import load_dotenv
+import os
+
 # from torchao.quantization import apply_dynamic_quant
 
 from . import config
@@ -26,31 +34,29 @@ from .controlnet import ControlNetPreprocessor, ControlNetModels
 # torch._inductor.config.force_fuse_int_mm_with_mul = True
 # torch._inductor.config.use_mixed_mm = True
 
-### STABLE-FAST SECTION ###
-#######################################################
-# # Optional Stable-Fast import
-# try:
-#     from sfast.compilers.diffusion_pipeline_compiler import compile, CompilationConfig
-#     is_sfast_available = True
-# except ImportError:
-#     print("Stable-Fast library not found. Pipeline will run without optimization.")
-#     is_sfast_available = False
+load_dotenv()
+IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 
-# # Optional xformers/triton check for logging
-# try:
-#     import xformers
-#     is_xformers_available = True
-# except ImportError:
-#     is_xformers_available = False
-# try:
-#     import triton
-#     is_triton_available = True
-# except ImportError:
-#     is_triton_available = False
-### /STABLE-FAST SECTION ###
-#######################################################
 
 print(f"MODEL SETUP (device, dtype): {config.DEVICE}, {config.DTYPE}")
+
+def HWC3(x):
+    assert x.dtype == np.uint8
+    if x.ndim == 2:
+        x = x[:, :, None]
+    assert x.ndim == 3
+    H, W, C = x.shape
+    assert C == 1 or C == 3 or C == 4
+    if C == 3:
+        return x
+    if C == 1:
+        return np.concatenate([x, x, x], axis=2)
+    if C == 4:
+        color = x[:, :, 0:3].astype(np.float32)
+        alpha = x[:, :, 3:4].astype(np.float32) / 255.0
+        y = color * alpha + 255.0 * (1.0 - alpha)
+        y = y.clip(0, 255).astype(np.uint8)
+        return y
 
 class ImagePipeline:
     """Wraps the SDXL Lightning and ControlNet++ pipeline setup."""
@@ -64,7 +70,7 @@ class ImagePipeline:
         self.controlnet_preprocessor = None
         self.controlnet_models = None
 
-    def load(self):
+    def load(self, scheduler_name: str):
         """Loads all models, configures the pipeline, applies optimizations, and warms up."""
         print("--- Starting Pipeline Loading Process ---")
 
@@ -83,41 +89,44 @@ class ImagePipeline:
                 device=config.DEVICE
             )
         )
+        unet.to(dtype=config.DTYPE)
         print("UNet Loaded and moved to device.")
-
-        # # --- 2a. Load the fixed VAE ---
-        # vae = AutoencoderKL.from_pretrained(
-        #     "madebyollin/sdxl-vae-fp16-fix", 
-        #     torch_dtype=torch.float16
-        # )
 
         # --- 3. Load ControlNet Models ---
         print("Loading ControlNet models...")
+        # self.depth_processor = ZoeDetector.from_pretrained("lllyasviel/Annotators")
+        # self.processor_midas = MidasDetector.from_pretrained("lllyasviel/Annotators")
         self.controlnet_models = ControlNetModels()
-        controlnet = self.controlnet_models.get_active_models()
-        
-        if len(controlnet) == 1:
-            controlnet = controlnet[0]  # Use single model if only one is active
-        
+        controlnet = self.controlnet_models.get_active_models()[0]
+        # controlnet = ControlNetModel.from_pretrained(
+        #     # "xinsir/controlnet-canny-sdxl-1.0",
+        #     "xinsir/controlnet-depth-sdxl-1.0",
+        #     torch_dtype=torch.float16
+        # )
+
+        # load the vae
+        vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
+
         # Initialize the preprocessor
         self.controlnet_preprocessor = ControlNetPreprocessor()
 
         # --- 4. Create the Full Pipeline with Injected UNet and ControlNet ---
         print("Instantiating StableDiffusionXLPipeline...")
-        pipeline = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(
+        pipeline = AutoPipelineForText2Image.from_pretrained(
             config.SDXL_BASE_MODEL_ID,
             unet=unet,                  # Inject the loaded Lightning UNet
             controlnet=controlnet,      # Inject the loaded ControlNet
-            # vae=vae,                    # Inject the fixed VAE
+            vae=vae, # Inject the loaded VAE
             torch_dtype=config.DTYPE,
             use_safetensors=True,
+            safety_checker=None,
             variant="fp16"              # Standard practice for SDXL
         ).to(config.DEVICE)
         print("Pipeline Instantiated and moved to device.")
 
         # --- 5. Configure the Scheduler (CRITICAL for SDXL Lightning) ---
-        print(f"Configuring Scheduler (EulerDiscrete, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
-        pipeline.scheduler = EulerDiscreteScheduler.from_config(
+        print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
+        pipeline.scheduler = config.SCHEDULERS[scheduler_name].from_config(
             pipeline.scheduler.config,
             timestep_spacing=config.SCHEDULER_TIMESTEP_SPACING
             # If using 1-step model, add: prediction_type=config.SCHEDULER_PREDICTION_TYPE
@@ -135,8 +144,8 @@ class ImagePipeline:
         # --- 7. Apply speedups and warmup the model ---
         self.pipeline.set_progress_bar_config(disable=True)
 
-        # Fuse the QKV projections in the UNet.
-        self.pipeline.fuse_qkv_projections()
+        # # Fuse the QKV projections in the UNet.
+        # self.pipeline.fuse_qkv_projections()
 
         if config.DEVICE != "mps":
             self.pipeline.unet.to(memory_format=torch.channels_last)
@@ -156,45 +165,7 @@ class ImagePipeline:
         # self.pipeline.unet = torch.compile(self.pipeline.unet, mode="max-autotune", fullgraph=True)
         # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
 
-        # self._apply_stable_fast()
-        self._warmup()
-        print("--- Pipeline Loading Process Complete ---")
-
-
-    def _warmup(self):
-        """Performs warmup runs, essential after Stable-Fast compilation."""
-        if not self._is_compiled or config.WARMUP_RUNS <= 0:
-            if config.WARMUP_RUNS > 0:
-                print("Skipping warmup: Pipeline not compiled with Stable-Fast.")
-            self._is_warmed_up = True # Mark as 'warmed up' even if skipped
-            return
-
-        print(f"Performing {config.WARMUP_RUNS} Warmup Runs...")
-        # Use a dummy prompt and a blank conditioning image for warmup
-        dummy_prompt = "warmup"
-        dummy_conditioning_image = Image.new("RGB", (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
-
-        kwarg_inputs_warmup = dict(
-            prompt=dummy_prompt,
-            image=dummy_conditioning_image,
-            num_inference_steps=config.N_STEPS,
-            guidance_scale=config.GUIDANCE_SCALE,
-            controlnet_conditioning_scale=config.CONTROLNET_CONDITIONING_SCALE,
-            output_type="latent" # Faster warmup, don't need VAE decode
-        )
-        try:
-            for i in range(config.WARMUP_RUNS):
-                start_time = time.time()
-                with torch.no_grad():
-                    _ = self.pipeline(**kwarg_inputs_warmup)
-                end_time = time.time()
-                print(f"Warmup run {i+1}/{config.WARMUP_RUNS} completed in {end_time - start_time:.3f} seconds.")
-            self._is_warmed_up = True
-            print("Warmup Complete.")
-        except Exception as e:
-            print(f"Error during warmup: {e}. Performance may be suboptimal.")
-            # proceed anyway, but flag that warmup didn't fully complete
-            self._is_warmed_up = False 
+        print("--- Pipeline Loading Process Complete ---") 
 
     def _process_control_images(self, camera_frame):
         """
@@ -226,7 +197,8 @@ class ImagePipeline:
         camera_frame: Image.Image,
         num_inference_steps: int = None,
         guidance_scale: float = None,
-        controlnet_conditioning_scale: float = None
+        controlnet_conditioning_scale: float = None,
+        strength: float = None,
     ) -> Image.Image:
         """
         Generates an image based on the prompt and conditioning image.
@@ -252,15 +224,41 @@ class ImagePipeline:
         steps = num_inference_steps if num_inference_steps is not None else config.N_STEPS
         g_scale = guidance_scale if guidance_scale is not None else config.GUIDANCE_SCALE
         cn_scale = controlnet_conditioning_scale if controlnet_conditioning_scale is not None else config.CONTROLNET_CONDITIONING_SCALE
+        strength = strength if strength is not None else config.STRENGTH
 
         # Ensure the conditioning image is appropriately sized (optional, but good practice)
         # SDXL typically expects 1024x1024.
         if camera_frame.size != (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT):
-            print(f"Warning: Conditioning image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
+            print(f"Warning: Image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
             camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
 
-        # Process control images based on active ControlNets
-        control_image = self._process_control_images(camera_frame)
+        # width, height = camera_frame.size
+        # ratio = np.sqrt(config.DEFAULT_IMAGE_WIDTH * config.DEFAULT_IMAGE_HEIGHT / (width * height))
+        # new_width, new_height = int(width * ratio), int(height * ratio)
+        # camera_frame = camera_frame.resize((new_width, new_height))
+        # camera_frame.save(f'{IMAGE_DEBUG_PATH}/reshaped_camera_frame_shape_{camera_frame.size}.jpg')
+
+        # control_img = self.processor_midas(camera_frame, image_resolution=config.DEFAULT_IMAGE_WIDTH, output_type='pil')
+        # # need to resize the image resolution to 1024 * 1024 or same bucket resolution to get the best performance
+        # height, width, _  = camera_frame.shape
+        # ratio = np.sqrt(1024. * 1024. / (width * height))
+        # new_width, new_height = int(width * ratio), int(height * ratio)
+        # control_img = cv2.resize(control_img, (new_width, new_height))
+        # control_img = Image.fromarray(control_img)
+        # control_img = control_img.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT), resample=Image.Resampling.NEAREST)
+
+        # for canny
+        # control_img = cv2.Canny(np.asarray(camera_frame), config.CANNY_EDGE_LOW, config.CANNY_EDGE_HIGH)
+        # control_img = HWC3(control_img)
+        # control_img = Image.fromarray(control_img)
+        # control_img.save(f'{IMAGE_DEBUG_PATH}/control_image_shape_{control_img.size}.jpg')
+
+        # # Process control images based on active ControlNets
+        control_img = self._process_control_images(camera_frame)
+        control_img = control_img.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT), resample=Image.Resampling.NEAREST)
+        # print(f"Control image type: {type(control_image)}")
+
+        control_img.save(f'{IMAGE_DEBUG_PATH}/control_image_shape_{control_img.size}.jpg')
 
         print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
         start_time = time.time()
@@ -271,17 +269,19 @@ class ImagePipeline:
                     prompt=prompt,
 
                     # For ControlNetImg2ImgPipeline
-                    image=camera_frame,
-                    control_image=control_image,
+                    # image=camera_frame,
+                    image=control_img,
+                    # control_image=control_img,
+                    # control_image=control_img,
 
                     num_inference_steps=steps,
 
                     # ControlNet parameters
+                    guidance_scale=g_scale,
                     controlnet_conditioning_scale=cn_scale,
+                    strength=strength,
                     control_guidance_start=config.CONTROL_GUIDANCE_START,
                     control_guidance_end=config.CONTROL_GUIDANCE_END,
-                    strength=config.STRENGTH,
-                    guidance_scale=g_scale,
 
                     negative_prompt=config.NEGATIVE_PROMPT,
                     generator=self.generator,
@@ -294,6 +294,7 @@ class ImagePipeline:
                     height=config.DEFAULT_IMAGE_HEIGHT,
                     output_type="pil",
                 ).images[0]
+            output_image.save(f'{IMAGE_DEBUG_PATH}/output_image_shape_{output_image.size}.jpg')
 
             end_time = time.time()
             print(f"Inference finished in {end_time - start_time:.3f} seconds.")
@@ -309,60 +310,3 @@ class ImagePipeline:
     def refresh_latents(self):
         # self.latents = torch.randn(self.latents_shape, generator=self.generator, device=config.DEVICE, dtype=config.DTYPE)
         self.latents = randn_tensor(self.latents_shape, generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
-    
-    # def _apply_stable_fast(self):
-    #     """Applies Stable-Fast compilation if available and configured."""
-    #     if not is_sfast_available:
-    #         print("Skipping Stable-Fast: Library not available.")
-    #         return
-
-    #     print("Applying Stable-Fast Compilation...")
-    #     sfast_config = CompilationConfig.Default()
-    #     compile_success = False
-    #     try:
-    #         if config.SFAST_ENABLE_XFORMERS:
-    #             if is_xformers_available:
-    #                 sfast_config.enable_xformers = True
-    #                 print("Stable-Fast: xformers enabled.")
-    #             else:
-    #                 print("Stable-Fast: xformers requested but not installed, disabling.")
-    #                 sfast_config.enable_xformers = False
-    #         else:
-    #              sfast_config.enable_xformers = False
-    #              print("Stable-Fast: xformers disabled by config.")
-
-    #         if config.SFAST_ENABLE_TRITON:
-    #             if is_triton_available:
-    #                 sfast_config.enable_triton = True
-    #                 print("Stable-Fast: Triton enabled.")
-    #             else:
-    #                 print("Stable-Fast: Triton requested but not installed, disabling.")
-    #                 sfast_config.enable_triton = False
-    #         else:
-    #              sfast_config.enable_triton = False
-    #              print("Stable-Fast: Triton disabled by config.")
-
-    #         if config.SFAST_ENABLE_CUDA_GRAPH:
-    #             sfast_config.enable_cuda_graph = True
-    #             print("Stable-Fast: CUDA Graph enabled.")
-    #         else:
-    #             sfast_config.enable_cuda_graph = False
-    #             print("Stable-Fast: CUDA Graph disabled by config.")
-
-    #         self.pipeline = compile(self.pipeline, sfast_config)
-    #         self._is_compiled = True
-    #         compile_success = True
-    #         print("Stable-Fast Compilation Complete.")
-
-        # except Exception as e:
-        #     print(f"Error during Stable-Fast compilation: {e}. Pipeline will run unoptimized.")
-        #     # Ensure pipeline is still the original if compilation fails mid-way
-        #     # (compile might return partially modified object on error, safer to reload or just use original)
-        #     # For simplicity here, we assume the original self.pipeline reference is usable.
-        #     self._is_compiled = False
-
-        # if compile_success:
-        #      print("Pipeline successfully compiled with Stable-Fast.")
-        # else:
-        #      print("Pipeline running without Stable-Fast optimization due to compilation issues or config.")
-

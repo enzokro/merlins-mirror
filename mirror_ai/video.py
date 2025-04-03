@@ -38,20 +38,20 @@ class VideoStreamer:
     def _capture_loop(self):
         """Thread function that continuously captures frames"""
         self.cap = cv2.VideoCapture(self.camera_id)
-        # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        # self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        self.cap.set(cv2.CAP_PROP_FPS, self.fps)
         
         while self.running:
             ret, frame = self.cap.read()
             if ret:
-                cv2.imwrite(f'{IMAGE_DEBUG_PATH}/camera_00_raw.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                cv2.imwrite(f'{IMAGE_DEBUG_PATH}/camera_00_raw_shape_{frame.shape}.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
                 # Convert to RGB (from BGR)
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                cv2.imwrite(f'{IMAGE_DEBUG_PATH}/camera_01_rgb.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                cv2.imwrite(f'{IMAGE_DEBUG_PATH}/camera_01_rgb_shape_{frame.shape}.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
                 # Convert to PIL Image
                 pil_image = Image.fromarray(frame)
-                pil_image.save(f'{IMAGE_DEBUG_PATH}/camera_02_pil.jpg')
+                pil_image.save(f'{IMAGE_DEBUG_PATH}/camera_02_pil_shape_{pil_image.size}.jpg')
                 
                 # Update the current frame
                 with self.lock:

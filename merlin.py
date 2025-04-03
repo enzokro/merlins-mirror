@@ -23,7 +23,7 @@ def go_merlin(request_queue, result_queue):
         
         # set up the image transformer and the webcam stream
         pipeline = ImagePipeline()
-        pipeline.load()
+        pipeline.load(config.SCHEDULER_NAME)
         video_streamer = VideoStreamer(
             camera_id=config.CAMERA_ID,
             width=config.CAMERA_WIDTH,
@@ -74,19 +74,20 @@ def go_merlin(request_queue, result_queue):
             # process camera frames
             try:
                 camera_frame = video_streamer.get_current_frame()
-                camera_frame.save(f'{IMAGE_DEBUG_PATH}/camera_04_queue.jpg')
+                camera_frame.save(f'{IMAGE_DEBUG_PATH}/camera_04_queue_shape_{camera_frame.size}.jpg')
                 if camera_frame is not None:
                     # transform the webcam image
                     processed_frame = pipeline.generate(current_prompt, camera_frame)
-                    processed_frame.save(f'{IMAGE_DEBUG_PATH}/camera_05_generated.jpg')
+                    processed_frame.save(f'{IMAGE_DEBUG_PATH}/camera_05_generated_shape_{processed_frame.size}.jpg')
                     
                     # convert to storable format
-                    pil_frame = convert_to_pil_image(processed_frame)
-                    pil_frame.save(f'{IMAGE_DEBUG_PATH}/camera_06_pil.jpg')
+                    # pil_frame = convert_to_pil_image(processed_frame)
+                    pil_frame = processed_frame
+                    pil_frame.save(f'{IMAGE_DEBUG_PATH}/camera_06_pil_shape_{pil_frame.size}.jpg')
 
                     # resize keeping aspect ratio
                     pil_frame = pil_frame.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT))
-                    pil_frame.save(f'{IMAGE_DEBUG_PATH}/camera_07_resized.jpg')
+                    pil_frame.save(f'{IMAGE_DEBUG_PATH}/camera_07_resized_shape_{pil_frame.size}.jpg')
 
                     # turn into base64 (easier to send through queue)
                     img_byte_arr = BytesIO()

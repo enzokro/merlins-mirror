@@ -1,11 +1,16 @@
 import time
+import cv2
 from PIL import Image
+import numpy as np
 import torch
 from diffusers import (
     StableDiffusionXLControlNetImg2ImgPipeline,
+    StableDiffusionControlNetPipeline,
     UNet2DConditionModel,
-    EulerDiscreteScheduler,
+    AutoencoderKL,
+    # AutoPipelineForImage2Image,
 )
+from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 from huggingface_hub import hf_hub_download
 from diffusers.utils.torch_utils import randn_tensor
 from safetensors.torch import load_file
@@ -35,6 +40,24 @@ IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 
 print(f"MODEL SETUP (device, dtype): {config.DEVICE}, {config.DTYPE}")
 
+def HWC3(x):
+    assert x.dtype == np.uint8
+    if x.ndim == 2:
+        x = x[:, :, None]
+    assert x.ndim == 3
+    H, W, C = x.shape
+    assert C == 1 or C == 3 or C == 4
+    if C == 3:
+        return x
+    if C == 1:
+        return np.concatenate([x, x, x], axis=2)
+    if C == 4:
+        color = x[:, :, 0:3].astype(np.float32)
+        alpha = x[:, :, 3:4].astype(np.float32) / 255.0
+        y = color * alpha + 255.0 * (1.0 - alpha)
+        y = y.clip(0, 255).astype(np.uint8)
+        return y
+
 class ImagePipeline:
     """Wraps the SDXL Lightning and ControlNet++ pipeline setup."""
     def __init__(self):
@@ -47,7 +70,7 @@ class ImagePipeline:
         self.controlnet_preprocessor = None
         self.controlnet_models = None
 
-    def load(self):
+    def load(self, scheduler_name: str):
         """Loads all models, configures the pipeline, applies optimizations, and warms up."""
         print("--- Starting Pipeline Loading Process ---")
 
@@ -66,34 +89,44 @@ class ImagePipeline:
                 device=config.DEVICE
             )
         )
+        unet.to(dtype=config.DTYPE)
         print("UNet Loaded and moved to device.")
 
         # --- 3. Load ControlNet Models ---
         print("Loading ControlNet models...")
+        # self.depth_processor = ZoeDetector.from_pretrained("lllyasviel/Annotators")
+        # self.processor_midas = MidasDetector.from_pretrained("lllyasviel/Annotators")
         self.controlnet_models = ControlNetModels()
-        controlnet = self.controlnet_models.get_active_models()
-        
-        if len(controlnet) == 1:
-            controlnet = controlnet[0]  # Use single model if only one is active
-        
+        controlnet = self.controlnet_models.get_active_models()[0]
+        # controlnet = ControlNetModel.from_pretrained(
+        #     # "xinsir/controlnet-canny-sdxl-1.0",
+        #     "xinsir/controlnet-depth-sdxl-1.0",
+        #     torch_dtype=torch.float16
+        # )
+
+        # load the vae
+        vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
+
         # Initialize the preprocessor
         self.controlnet_preprocessor = ControlNetPreprocessor()
 
         # --- 4. Create the Full Pipeline with Injected UNet and ControlNet ---
         print("Instantiating StableDiffusionXLPipeline...")
-        pipeline = StableDiffusionXLControlNetImg2ImgPipeline.from_pretrained(
+        pipeline = StableDiffusionControlNetPipeline.from_pretrained(
             config.SDXL_BASE_MODEL_ID,
             unet=unet,                  # Inject the loaded Lightning UNet
             controlnet=controlnet,      # Inject the loaded ControlNet
+            vae=vae, # Inject the loaded VAE
             torch_dtype=config.DTYPE,
             use_safetensors=True,
+            safety_checker=None,
             variant="fp16"              # Standard practice for SDXL
         ).to(config.DEVICE)
         print("Pipeline Instantiated and moved to device.")
 
         # --- 5. Configure the Scheduler (CRITICAL for SDXL Lightning) ---
-        print(f"Configuring Scheduler (EulerDiscrete, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
-        pipeline.scheduler = config.SCHEDULERS[config.SCHEDULER_NAME].from_config(
+        print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
+        pipeline.scheduler = config.SCHEDULERS[scheduler_name].from_config(
             pipeline.scheduler.config,
             timestep_spacing=config.SCHEDULER_TIMESTEP_SPACING
             # If using 1-step model, add: prediction_type=config.SCHEDULER_PREDICTION_TYPE
@@ -165,7 +198,7 @@ class ImagePipeline:
         num_inference_steps: int = None,
         guidance_scale: float = None,
         controlnet_conditioning_scale: float = None,
-        strength: float = None
+        strength: float = None,
     ) -> Image.Image:
         """
         Generates an image based on the prompt and conditioning image.
@@ -196,14 +229,36 @@ class ImagePipeline:
         # Ensure the conditioning image is appropriately sized (optional, but good practice)
         # SDXL typically expects 1024x1024.
         if camera_frame.size != (config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT):
-            print(f"Warning: Conditioning image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
+            print(f"Warning: Image size {camera_frame.size} differs from default ({config.DEFAULT_IMAGE_WIDTH}, {config.DEFAULT_IMAGE_HEIGHT}). Resizing...")
             camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
 
-        # Process control images based on active ControlNets
-        control_image = self._process_control_images(camera_frame)
-        control_image = control_image.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
-        print(f"Control image type: {type(control_image)}")
-        control_image.save(f'{IMAGE_DEBUG_PATH}/control_image.jpg')
+        # width, height = camera_frame.size
+        # ratio = np.sqrt(config.DEFAULT_IMAGE_WIDTH * config.DEFAULT_IMAGE_HEIGHT / (width * height))
+        # new_width, new_height = int(width * ratio), int(height * ratio)
+        # camera_frame = camera_frame.resize((new_width, new_height))
+        # camera_frame.save(f'{IMAGE_DEBUG_PATH}/reshaped_camera_frame_shape_{camera_frame.size}.jpg')
+
+        # control_img = self.processor_midas(camera_frame, image_resolution=config.DEFAULT_IMAGE_WIDTH, output_type='pil')
+        # # need to resize the image resolution to 1024 * 1024 or same bucket resolution to get the best performance
+        # height, width, _  = camera_frame.shape
+        # ratio = np.sqrt(1024. * 1024. / (width * height))
+        # new_width, new_height = int(width * ratio), int(height * ratio)
+        # control_img = cv2.resize(control_img, (new_width, new_height))
+        # control_img = Image.fromarray(control_img)
+        # control_img = control_img.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT), resample=Image.Resampling.NEAREST)
+
+        # for canny
+        # control_img = cv2.Canny(np.asarray(camera_frame), config.CANNY_EDGE_LOW, config.CANNY_EDGE_HIGH)
+        # control_img = HWC3(control_img)
+        # control_img = Image.fromarray(control_img)
+        # control_img.save(f'{IMAGE_DEBUG_PATH}/control_image_shape_{control_img.size}.jpg')
+
+        # # Process control images based on active ControlNets
+        control_img = self._process_control_images(camera_frame)
+        control_img = control_img.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT), resample=Image.Resampling.NEAREST)
+        # print(f"Control image type: {type(control_image)}")
+
+        control_img.save(f'{IMAGE_DEBUG_PATH}/control_image_shape_{control_img.size}.jpg')
 
         print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
         start_time = time.time()
@@ -213,9 +268,13 @@ class ImagePipeline:
                 output_image = self.pipeline(
                     prompt=prompt,
 
-                    # For ControlNetImg2ImgPipeline
-                    image=camera_frame,
-                    control_image=control_image,
+                    # For ControlNetPipeline
+                    image=control_img,
+                    # control_image=control_img,
+
+                    # # For ControlNetImg2ImgPipeline
+                    # image=camera_frame,
+                    # control_image=control_img,
 
                     num_inference_steps=steps,
 
@@ -237,6 +296,7 @@ class ImagePipeline:
                     height=config.DEFAULT_IMAGE_HEIGHT,
                     output_type="pil",
                 ).images[0]
+            output_image.save(f'{IMAGE_DEBUG_PATH}/output_image_shape_{output_image.size}.jpg')
 
             end_time = time.time()
             print(f"Inference finished in {end_time - start_time:.3f} seconds.")

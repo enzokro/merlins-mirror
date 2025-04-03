@@ -48,7 +48,7 @@ N_STEPS = 4
 # Template for UNet checkpoint filenames. Use .format(n_steps=N_STEPS).
 LIGHTNING_CKPT_TEMPLATE = "sdxl_lightning_{n_steps}step_unet.safetensors"
 # Device to run the pipeline on ("cuda" or "cpu"). CUDA is highly recommended.
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "mps" #"cuda" if torch.cuda.is_available() else "cpu"
 # Data type for model parameters and inference. float16 is recommended for speed and memory.
 DTYPE = torch.float16
 
@@ -56,7 +56,7 @@ DTYPE = torch.float16
 # Guidance scale. MUST be 0.0 for SDXL Lightning/Turbo models.
 GUIDANCE_SCALE = 0.0
 # ControlNet parameters
-CONTROLNET_CONDITIONING_SCALE = 0.75  # Balances prompt vs. control image influence
+CONTROLNET_CONDITIONING_SCALE = 0.8  # Balances prompt vs. control image influence
 CONTROL_GUIDANCE_START = 0.0  # When ControlNet conditioning starts (0.0 = beginning)
 CONTROL_GUIDANCE_END = 1.0  # When ControlNet conditioning ends (1.0 = end)
 STRENGTH = 0.75  # Image-to-image strength
@@ -71,9 +71,7 @@ SCHEDULERS = {
     "PNDM": PNDMScheduler,
 }
 
-SCHEDULER_NAME = "K_EULER"
-SCHEDULER_TIMESTEPS = "trailing"
-
+SCHEDULER_NAME = "K_EULER_ANCESTRAL"
 
 # --- Scheduler Configuration ---
 # Timestep spacing strategy. MUST be "trailing" for SDXL Lightning UNets (except 1-step).
@@ -102,7 +100,7 @@ DISPLAY_WIDTH = 1920  # Width for web display
 DISPLAY_HEIGHT = 1080  # Height for web display
 
 # Negative prompt for SDXL
-NEGATIVE_PROMPT = "low quality, blurry, distorted, bad anatomy"
+NEGATIVE_PROMPT = "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality"
 
 # Frame processing
 FRAME_BLEND = 0.75
@@ -119,6 +117,10 @@ RESULT_STATUS = "status"
 
 # JPEG quality for the web app
 JPEG_QUALITY = 90
+
+# Canny edge detection parameters
+CANNY_EDGE_LOW = 100
+CANNY_EDGE_HIGH = 200
 
     
 # Video settings
