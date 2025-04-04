@@ -68,7 +68,6 @@ GUIDANCE_SCALE = 1.0
 CONTROLNET_CONDITIONING_SCALE = 0.75  # Balances prompt vs. control image influence
 CONTROL_GUIDANCE_START = 0.0  # When ControlNet conditioning starts (0.0 = beginning)
 CONTROL_GUIDANCE_END = 1.0  # When ControlNet conditioning ends (1.0 = end)
-STRENGTH = 0.75  # Image-to-image strength
 
 SCHEDULERS = {
     "DDIM": DDIMScheduler,
@@ -80,7 +79,7 @@ SCHEDULERS = {
     "PNDM": PNDMScheduler,
 }
 
-SCHEDULER_NAME = "K_EULER_ANCESTRAL"
+SCHEDULER_NAME = "K_EULER"
 
 # --- Scheduler Configuration ---
 # Timestep spacing strategy. MUST be "trailing" for SDXL Lightning UNets (except 1-step).
@@ -102,8 +101,8 @@ USE_QUANTIZATION = True
 # Number of initial inference runs to perform after compilation for Stable-Fast optimization.
 WARMUP_RUNS = 3
 # Default image size for SDXL. Conditioning images should ideally match this.
-DEFAULT_IMAGE_WIDTH = 1024
-DEFAULT_IMAGE_HEIGHT = 1024
+DEFAULT_IMAGE_WIDTH = 512
+DEFAULT_IMAGE_HEIGHT = 256
 
 DISPLAY_WIDTH = 1920  # Width for web display
 DISPLAY_HEIGHT = 1080  # Height for web display
@@ -126,11 +125,6 @@ RESULT_STATUS = "status"
 
 # JPEG quality for the web app
 JPEG_QUALITY = 90
-
-# Canny edge detection parameters
-CANNY_EDGE_LOW = 100
-CANNY_EDGE_HIGH = 200
-
     
 # Video settings
 CAMERA_ID = 0  # Webcam index (0 for default camera)

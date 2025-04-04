@@ -20,13 +20,13 @@ cfgs = [
     3.5,
 ]
 
-strengths = [
-    0.1,
-    0.5,
-    0.75,
-    0.8,
-    0.99,
-]
+# strengths = [
+#     0.1,
+#     0.5,
+#     0.75,
+#     0.8,
+#     0.99,
+# ]
 
 control_scales = [
     0.1,
@@ -60,7 +60,7 @@ def run():
         camera_frame = Image.open(f'empty_room.jpg')
         camera_frame = camera_frame.resize((config.DEFAULT_IMAGE_WIDTH, config.DEFAULT_IMAGE_HEIGHT))
 
-        for idx, (cfg, strength, control_scale) in enumerate(itertools.product(cfgs, strengths, control_scales)):
+        for idx, (cfg, strength, control_scale) in enumerate(itertools.product(cfgs, control_scales)):
             # transform the webcam image
             pil_frame = pipeline.generate(
                 current_prompt,

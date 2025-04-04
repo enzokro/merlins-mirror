@@ -51,14 +51,14 @@ class VideoStreamer:
                 cv2.imwrite(f'{IMAGE_DEBUG_PATH}/camera_01_rgb_shape_{frame.shape}.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
                 # Convert to PIL Image
                 pil_image = Image.fromarray(frame)
-                pil_image.save(f'{IMAGE_DEBUG_PATH}/camera_02_pil_shape_{pil_image.size}.jpg')
+                # pil_image.save(f'{IMAGE_DEBUG_PATH}/camera_02_pil_shape_{pil_image.size}.jpg')
                 
                 # Update the current frame
                 with self.lock:
                     self.frame = pil_image
             
             # Small sleep to reduce CPU usage
-            time.sleep(0.01)
+            time.sleep(0.0001)
     
     def get_current_frame(self):
         """Gets the current frame as a PIL Image"""
