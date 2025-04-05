@@ -16,10 +16,9 @@ def go_merlin(request_queue, result_queue):
         import torch
         from mirror_ai.pipeline import ImagePipeline
         from mirror_ai.video import VideoStreamer
-        from mirror_ai.utils import convert_to_pil_image, resize
         from mirror_ai import config
         
-        print("Initializing Merlin...")
+        print("Starting Merlin...")
         
         # set up the image transformer and the webcam stream
         pipeline = ImagePipeline()

@@ -75,9 +75,10 @@ RUN uv pip install --no-cache \
     --index-url https://download.pytorch.org/whl/cu124
 # RUN uv pip install --no-cache-dir stable-fast
 RUN uv pip install --no-cache-dir triton
+RUN uv pip install --no-cache-dir torch-tensorrt
 
 # Huggingface accelerate
-RUN uv run accelerate config default
+RUN uv run accelerate config default --mixed_precision fp16
 
 # Define default command (example - replace with your actual app entrypoint)
 # CMD ["python3", "app.py"]

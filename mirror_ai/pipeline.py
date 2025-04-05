@@ -4,7 +4,6 @@ from PIL import Image
 import numpy as np
 import torch
 from diffusers import (
-    StableDiffusionXLControlNetImg2ImgPipeline,
     StableDiffusionXLControlNetPipeline,
     StableDiffusionXLControlNetUnionPipeline,
     UNet2DConditionModel,
@@ -38,7 +37,7 @@ load_dotenv()
 print(f"MODEL SETUP (device, dtype): {config.DEVICE}, {config.DTYPE}")
 IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 
-
+# set the pipeline class
 pipe_class = StableDiffusionXLControlNetUnionPipeline
 
 class ImagePipeline:
@@ -53,13 +52,12 @@ class ImagePipeline:
         print("--- Starting Pipeline Loading Process ---")
 
         # Load SDXL Lightning UNet
-        print(f"Loading SDXL Lightning {config.N_STEPS}-Step UNet")
-
-        lightning_ckpt_file = config.LIGHTNING_CKPT_TEMPLATE.format(n_steps=config.N_STEPS)
+        print(f"Loading SDXL Lightning {config.N_STEPS}-Step UNet...")
 
         # Instantiate UNet from config, then load the specific Lightning weights
         unet_config = UNet2DConditionModel.load_config(config.SDXL_BASE_MODEL_ID, subfolder="unet")
         unet = UNet2DConditionModel.from_config(unet_config).to(config.DEVICE, dtype=config.DTYPE)
+        lightning_ckpt_file = config.LIGHTNING_CKPT_TEMPLATE.format(n_steps=config.N_STEPS)
         unet.load_state_dict(
             load_file(
                 hf_hub_download(config.SDXL_LIGHTNING_REPO_ID, lightning_ckpt_file),
@@ -67,7 +65,6 @@ class ImagePipeline:
             )
         )
         unet.to(dtype=config.DTYPE)
-        print("UNet Loaded and moved to device.")
 
         # Load ControlNet Models
         print("Loading ControlNet models...")
@@ -76,22 +73,22 @@ class ImagePipeline:
         self.pose_model  = OpenposeDetector.from_pretrained("lllyasviel/ControlNet").to(config.DEVICE)
 
         # Load the fixed vae
+        print("Loading VAE...")
         vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
         vae.to(config.DEVICE)
 
         # Create the Full Pipeline with Injected UNet, ControlNet, and VAE
-        print("Instantiating StableDiffusionXLPipeline...")
+        print("Creating the pipeline...")
         pipeline = pipe_class.from_pretrained(
             config.SDXL_BASE_MODEL_ID,
-            unet=unet,                     # Inject the loaded Lightning UNet
-            controlnet=controlnet_model,   # Inject the loaded ControlNet
-            vae=vae,                       # Inject the loaded VAE
+            unet=unet,                     # Inject the Lightning UNet
+            controlnet=controlnet_model,   # Inject the ControlNet
+            vae=vae,                       # Inject the VAE
             torch_dtype=config.DTYPE,
             use_safetensors=True,
             safety_checker=None,
             variant="fp16"              
         ).to(config.DEVICE)
-        print("Pipeline Instantiated and moved to device.")
 
         # Configure the Scheduler (CRITICAL for SDXL Lightning)
         print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
@@ -102,13 +99,19 @@ class ImagePipeline:
         print("Scheduler Configured.")
 
         # Set up Res-Adapter
+        print("Loading Res-Adapter...")
         resadapter_model_name = "resadapter_v2_sdxl"
         pipeline.load_lora_weights(
-            hf_hub_download(repo_id="jiaxiangc/res-adapter", subfolder=resadapter_model_name, filename="pytorch_lora_weights.safetensors"), 
+            hf_hub_download(
+                repo_id="jiaxiangc/res-adapter", 
+                subfolder=resadapter_model_name, 
+                filename="pytorch_lora_weights.safetensors",
+            ), 
             adapter_name="res_adapter",
             ) # load lora weights
         pipeline.set_adapters(["res_adapter"], adapter_weights=[1.0])
 
+        # set the pipeline
         self.pipeline = pipeline
 
         # Initialize latents
@@ -124,8 +127,8 @@ class ImagePipeline:
         ## Fuse the QKV projections in the UNet.
         self.pipeline.fuse_qkv_projections()
 
-        ## Move the UNet and ControlNet to channels_last memory format
-        if config.DEVICE != "mps":
+        ## Move the UNet and ControlNet to channels_last
+        if config.DEVICE not in ("mps", "cpu"):
             self.pipeline.unet.to(memory_format=torch.channels_last)
             if isinstance(self.pipeline.controlnet, list):
                 for cn in self.pipeline.controlnet:
@@ -144,7 +147,7 @@ class ImagePipeline:
         # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
         # self.pipeline.controlnet = torch.compile(self.pipeline.controlnet, mode="max-autotune", fullgraph=True)
 
-        print("--- Pipeline Loading Process Complete ---") 
+        print("Pipeline loaded.") 
 
 
     def generate(
@@ -181,7 +184,7 @@ class ImagePipeline:
         cn_scale = controlnet_conditioning_scale if controlnet_conditioning_scale is not None else config.CONTROLNET_CONDITIONING_SCALE
 
 
-        # # Process control images based on active ControlNets
+        # Process control images based on active ControlNets
         cv_img = np.asarray(camera_frame)
         image_depth = self.depth_model(cv_img, output_type="pil")
         image_pose = self.pose_model(cv_img, hand_and_face=False, output_type="pil")
@@ -205,30 +208,26 @@ class ImagePipeline:
                     prompt=[prompt]*1,
                     negative_prompt=[config.NEGATIVE_PROMPT]*1,
 
-                    image_list=[image_pose, image_depth, 0, 0, 0, 0], 
-
-                    num_inference_steps=steps,
-
-                    # ControlNet parameters
                     guidance_scale=g_scale,
-                    controlnet_conditioning_scale=cn_scale,
-                    control_guidance_start=control_start,
-                    control_guidance_end=control_end,
-
+                    num_inference_steps=steps,
                     generator=self.generator,
 
                     # fixed latents for consistent results between frames
                     latents=self.get_latents(), 
 
+                    # ControlNet parameters
+                    image_list=[image_pose, image_depth, 0, 0, 0, 0], 
+                    controlnet_conditioning_scale=cn_scale,
+                    control_guidance_start=control_start,
+                    control_guidance_end=control_end,
+                    union_control=True,
+                    union_control_type=torch.Tensor([1, 1, 0, 0, 0, 0]),
+                    crops_coords_top_left=(0, 0),
+
                     # output image setup
                     width=config.DEFAULT_IMAGE_WIDTH,
                     height=config.DEFAULT_IMAGE_HEIGHT,
                     output_type="pil",
-
-                    # controlnet union specifics
-                    union_control=True,
-                    union_control_type=torch.Tensor([1, 1, 0, 0, 0, 0]),
-                    crops_coords_top_left=(0, 0),
 
                 ).images[0]
             # output_image.save(f'{IMAGE_DEBUG_PATH}/output_image_shape_{output_image.size}.jpg')
