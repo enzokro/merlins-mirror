@@ -38,8 +38,8 @@ class VideoStreamer:
     def _capture_loop(self):
         """Thread function that continuously captures frames"""
         self.cap = cv2.VideoCapture(self.camera_id)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         self.cap.set(cv2.CAP_PROP_FPS, self.fps)
         
         while self.running:

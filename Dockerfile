@@ -92,6 +92,9 @@ RUN which nvcc
 # install cv2 dependencies
 RUN apt-get update && apt-get install ffmpeg libsm6 libxext6  -y
 
+# install the nightly diffusers version
+RUN uv pip install git+https://github.com/huggingface/diffusers
+
 # copy the project files, put here for cache purposes
 COPY .docker_env .env
 COPY static static

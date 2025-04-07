@@ -1,16 +1,20 @@
-import time
-import cv2
 from PIL import Image
 import numpy as np
 import torch
 from diffusers import (
     StableDiffusionXLControlNetPipeline,
     StableDiffusionXLControlNetUnionPipeline,
+    StableDiffusionXLControlNetImg2ImgPipeline,
     UNet2DConditionModel,
     AutoencoderKL,
+    ControlNetUnionModel,
+    DiffusionPipeline,
+    ControlNetModel,
 )
+import cv2
+from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 from mirror_ai.controlnet.controlnet_union import ControlNetModel_Union
-from controlnet_aux import MidasDetector, OpenposeDetector
+from controlnet_aux import MidasDetector, OpenposeDetector, OpenposeDetector
 from huggingface_hub import hf_hub_download
 from diffusers.utils.torch_utils import randn_tensor
 import torch_tensorrt
@@ -19,17 +23,16 @@ from torchao.quantization import swap_conv2d_1x1_to_linear
 from dotenv import load_dotenv
 import os
 
-# from torchao.quantization import apply_dynamic_quant
 
 from . import config
 from .utils import dynamic_quant_filter_fn, conv_filter_fn
 
 # small torch speedups for compilation
-torch.backends.cuda.matmul.allow_tf32 = True
-torch._inductor.config.conv_1x1_as_mm = True
-torch._inductor.config.coordinate_descent_tuning = True
-torch._inductor.config.epilogue_fusion = False
-torch._inductor.config.coordinate_descent_check_all_directions = True
+# torch.backends.cuda.matmul.allow_tf32 = True
+# torch._inductor.config.conv_1x1_as_mm = True
+# torch._inductor.config.coordinate_descent_tuning = True
+# torch._inductor.config.epilogue_fusion = False
+# torch._inductor.config.coordinate_descent_check_all_directions = True
 # # for the linear swaps
 # torch._inductor.config.force_fuse_int_mm_with_mul = True
 # torch._inductor.config.use_mixed_mm = True
@@ -39,13 +42,14 @@ print(f"MODEL SETUP (device, dtype): {config.DEVICE}, {config.DTYPE}")
 IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 
 # set the pipeline class
-pipe_class = StableDiffusionXLControlNetUnionPipeline
+pipe_class = StableDiffusionXLControlNetPipeline
+
 
 class ImagePipeline:
     """Wraps the SDXL Lightning and ControlNet++ pipeline setup."""
     def __init__(self):
         self.pipeline = None
-        self.generator = torch.Generator(device="cpu").manual_seed(config.SEED)
+        self.generator = torch.Generator(device=torch.device(config.DEVICE)).manual_seed(config.SEED)
 
 
     def load(self, scheduler_name: str):
@@ -67,16 +71,42 @@ class ImagePipeline:
         )
         unet.to(dtype=config.DTYPE)
 
-        # Load ControlNet Models
-        print("Loading ControlNet models...")
-        controlnet_model = ControlNetModel_Union.from_pretrained("xinsir/controlnet-union-sdxl-1.0", torch_dtype=torch.float16, use_safetensors=True)
+        # # Load ControlNet Models
         self.depth_model = MidasDetector.from_pretrained("lllyasviel/Annotators").to(config.DEVICE)
-        self.pose_model  = OpenposeDetector.from_pretrained("lllyasviel/ControlNet").to(config.DEVICE)
+        self.depth_estimator = DPTForDepthEstimation.from_pretrained("Intel/dpt-hybrid-midas").to(config.DEVICE)
+        self.feature_extractor = DPTFeatureExtractor.from_pretrained("Intel/dpt-hybrid-midas")
+        self.openpose = OpenposeDetector.from_pretrained("lllyasviel/ControlNet").to(config.DEVICE)
+        controlnet_model_depth = ControlNetModel.from_pretrained(
+            "diffusers/controlnet-depth-sdxl-1.0",
+            variant="fp16",
+            use_safetensors=True,
+            torch_dtype=config.DTYPE,
+        ).to(config.DEVICE)
+        # controlnet_model_canny = ControlNetModel.from_pretrained(
+        #     "diffusers/controlnet-canny-sdxl-1.0",
+        #     variant="fp16",
+        #     use_safetensors=True,
+        #     torch_dtype=config.DTYPE,
+        # ).to(config.DEVICE)
+        controlnet_model_pose = ControlNetModel.from_pretrained(
+            "thibaud/controlnet-openpose-sdxl-1.0",
+            torch_dtype=torch.float16,
+        ).to(config.DEVICE)
+        
+        # for regular txt2img
+        self.controlnet_model = controlnet_model = [
+            controlnet_model_pose,
+            controlnet_model_depth,
+            # controlnet_model_canny,
+        ]
+        # for img2img
+        # self.controlnet_model = controlnet_model = controlnet_model_depth
 
         # Load the fixed vae
         print("Loading VAE...")
         vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
         vae.to(config.DEVICE)
+
 
         # Create the Full Pipeline with Injected UNet, ControlNet, and VAE
         print("Creating the pipeline...")
@@ -87,7 +117,6 @@ class ImagePipeline:
             vae=vae,                       # Inject the VAE
             torch_dtype=config.DTYPE,
             use_safetensors=True,
-            safety_checker=None,
             variant="fp16"              
         ).to(config.DEVICE)
 
@@ -118,26 +147,26 @@ class ImagePipeline:
         # Initialize latents
         batch_size = 1
         num_channels_latents = self.pipeline.unet.config.in_channels
-        self.latents_shape = (batch_size, num_channels_latents, config.DEFAULT_IMAGE_HEIGHT // self.pipeline.vae_scale_factor, config.DEFAULT_IMAGE_WIDTH // self.pipeline.vae_scale_factor)
+        self.latents_shape = (
+            batch_size,
+            num_channels_latents,
+            config.RESA_HEIGHT // self.pipeline.vae_scale_factor,
+            config.RESA_WIDTH // self.pipeline.vae_scale_factor)
         self.refresh_latents()
 
         # Apply speedups and warmup the model
         self.pipeline.set_progress_bar_config(disable=True)
 
         # Speedup optimizations
-        ## Fuse the QKV projections in the UNet.
+        # # Fuse the QKV projections in the UNet.
         self.pipeline.fuse_qkv_projections()
 
-        ## Move the UNet and ControlNet to channels_last
+        # ## Move the UNet and ControlNet to channels_last
         if config.DEVICE not in ("mps", "cpu"):
             self.pipeline.unet.to(memory_format=torch.channels_last)
-            if isinstance(self.pipeline.controlnet, list):
-                for cn in self.pipeline.controlnet:
-                    cn.to(memory_format=torch.channels_last)
-            else:
-                self.pipeline.controlnet.to(memory_format=torch.channels_last)
+            self.pipeline.controlnet.to(memory_format=torch.channels_last)
 
-        ## TODO: figure out dynamic quantization
+        # ## TODO: figure out dynamic quantization
         swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
         swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
         # apply_dynamic_quant(self.pipeline.unet, dynamic_quant_filter_fn)
@@ -151,13 +180,33 @@ class ImagePipeline:
 
         print("Pipeline loaded.") 
 
+    def get_depth_map(self, image):
+        image = self.feature_extractor(images=image, return_tensors="pt").pixel_values.to("cuda")
+        with torch.no_grad():
+            depth_map = self.depth_estimator(image).predicted_depth
+
+        depth_map = torch.nn.functional.interpolate(
+            depth_map.unsqueeze(1),
+            # size=(config.RESA_HEIGHT, config.RESA_WIDTH),
+            size=(config.SDXL_WIDTH, config.SDXL_HEIGHT),
+            mode="bilinear",
+            align_corners=False,
+        )
+        depth_min = torch.amin(depth_map, dim=[1, 2, 3], keepdim=True)
+        depth_max = torch.amax(depth_map, dim=[1, 2, 3], keepdim=True)
+        depth_map = (depth_map - depth_min) / (depth_max - depth_min)
+        image = torch.cat([depth_map] * 3, dim=1)
+
+        image = image.permute(0, 2, 3, 1).cpu().numpy()[0]
+        image = Image.fromarray((image * 255.0).clip(0, 255).astype(np.uint8))
+        return image
+
 
     def generate(
         self,
         prompt: str,
         camera_frame: Image.Image,
         num_inference_steps: int = None,
-        guidance_scale: float = None,
         controlnet_conditioning_scale: float = None,
     ) -> Image.Image:
         """
@@ -182,53 +231,67 @@ class ImagePipeline:
 
         # Use configured defaults if not overridden
         steps = num_inference_steps if num_inference_steps is not None else config.N_STEPS
-        g_scale = guidance_scale if guidance_scale is not None else config.GUIDANCE_SCALE
-        cn_scale = controlnet_conditioning_scale if controlnet_conditioning_scale is not None else config.CONTROLNET_CONDITIONING_SCALE
-
 
         # Process control images based on active ControlNets
-        cv_img = np.asarray(camera_frame)
-        image_depth = self.depth_model(cv_img, output_type="pil")
-        image_pose = self.pose_model(cv_img, hand_and_face=False, output_type="pil")
-
-        # image_depth.save(f'{IMAGE_DEBUG_PATH}/image_depth_shape_{image_depth.size}.jpg')
-        # image_pose.save(f'{IMAGE_DEBUG_PATH}/image_pose_shape_{image_pose.size}.jpg')
+        camera_frame.save(f'{IMAGE_DEBUG_PATH}/image_orig_shape_{camera_frame.size}.jpg')
+        camera_frame = camera_frame.resize((config.RESA_WIDTH, config.RESA_HEIGHT))
 
         # print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
         # start_time = time.time()
 
-        control_start = config.CONTROL_GUIDANCE_START
-        control_end = config.CONTROL_GUIDANCE_END
+        ## manual controlnet params
+        cn_scale = [0.8, 0.5]
+        control_start = [0., 0.]
+        control_end = [1.0, 1.0]
+        size = (config.RESA_WIDTH, config.RESA_HEIGHT)
+        # size=(config.SDXL_WIDTH, config.SDXL_HEIGHT)
+    
+        # get depth image
+        # depth_image = self.get_depth_map(camera_frame).resize(size)
+        depth_image = self.depth_model(camera_frame, output_type="pil").resize(size)
 
-        control_start = [control_start, control_start]
-        control_end = [control_end, control_end]
-        cn_scale = [cn_scale, cn_scale]
+        # # get canny image
+        # canny_image = np.array(camera_frame)
+        # canny_image = cv2.Canny(canny_image, 100, 200)
+        # canny_image = canny_image[:, :, None]
+        # canny_image = np.concatenate([canny_image, canny_image, canny_image], axis=2)
+        # canny_image = Image.fromarray(canny_image).resize(size)
+
+        pose_image = self.openpose(camera_frame, hand_and_face=False).resize(size)
+
+        control_image = [
+            pose_image,
+            depth_image,
+            # canny_image,
+        ]
+
+        # save the images
+        pose_image.save(f'{IMAGE_DEBUG_PATH}/image_depth_shape_{pose_image.size}.jpg')
+        depth_image.save(f'{IMAGE_DEBUG_PATH}/image_pose_shape_{depth_image.size}.jpg')
+        # canny_image.save(f'{IMAGE_DEBUG_PATH}/image_pose_shape_{canny_image.size}.jpg')
 
         try:
             with torch.no_grad():
                 output_image = self.pipeline(
-                    prompt=[prompt]*1,
-                    negative_prompt=[config.NEGATIVE_PROMPT]*1,
+                    prompt=prompt,
+                    # negative_prompt=config.NEGATIVE_PROMPT,
 
-                    guidance_scale=g_scale,
                     num_inference_steps=steps,
+
+                    ## TODO: fix
+                    # fixed generator and latents for consistent results between frames
                     generator=self.generator,
+                    latents=self.latents, 
 
-                    # fixed latents for consistent results between frames
-                    latents=self.get_latents(), 
-
-                    # ControlNet parameters
-                    image_list=[image_pose, image_depth, 0, 0, 0, 0], 
+                    # for regular controlnet pipeline
+                    image=control_image,
                     controlnet_conditioning_scale=cn_scale,
-                    control_guidance_start=control_start,
-                    control_guidance_end=control_end,
-                    union_control=True,
-                    union_control_type=torch.Tensor([1, 1, 0, 0, 0, 0]),
-                    crops_coords_top_left=(0, 0),
+                    controlnet_guidance_start=control_start,
+                    controlnet_guidance_end=control_end,
 
                     # output image setup
-                    width=config.DEFAULT_IMAGE_WIDTH,
-                    height=config.DEFAULT_IMAGE_HEIGHT,
+                    width=config.RESA_WIDTH, #config.SDXL_WIDTH,
+                    height=config.RESA_HEIGHT, #SDXL_HEIGHT,
                     output_type="pil",
 
                 ).images[0]
@@ -241,9 +304,14 @@ class ImagePipeline:
         except Exception as e:
             print(f"Error during pipeline inference: {e}")
             raise RuntimeError("Failed to generate image.") from e
-        
-    def get_latents(self):
-        return self.latents.clone()
 
     def refresh_latents(self):
-        self.latents = randn_tensor(self.latents_shape, generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
+        latents = randn_tensor(
+            self.latents_shape,
+            generator=self.generator,
+            device=torch.device(config.DEVICE),
+            dtype=config.DTYPE,
+        )
+        # latents *= self.pipeline.scheduler.init_noise_sigma
+        print(f'Latents shape: {latents.shape}')
+        self.latents = latents

@@ -22,7 +22,9 @@ class KarrasDPM:
         )
     
 # Random seed for reproducibility
-SEED = 12297829382473034410 
+# SEED = 12297829382473034410 
+# SEED = 0
+SEED = 1010101
 
 # --- Core Model Identifiers ---
 # Base SDXL model used for components like VAE and text encoders
@@ -32,7 +34,7 @@ SDXL_LIGHTNING_REPO_ID = "ByteDance/SDXL-Lightning"
 
 # --- Pipeline Configuration ---
 # Number of inference steps. MUST match the loaded UNet checkpoint (e.g., 2, 4, 8).
-N_STEPS = 2
+N_STEPS = 4
 # Template for UNet checkpoint filenames. Use .format(n_steps=N_STEPS).
 LIGHTNING_CKPT_TEMPLATE = "sdxl_lightning_{n_steps}step_unet.safetensors"
 # Device to run the pipeline on ("cuda" or "cpu"). CUDA is highly recommended.
@@ -55,7 +57,7 @@ CONTROLNETS = [
 
 # --- Inference Parameters ---
 # Guidance scale. MUST be 0.0 for SDXL Lightning/Turbo models.
-GUIDANCE_SCALE = 1.0
+GUIDANCE_SCALE = 0.0
 # ControlNet parameters
 CONTROLNET_CONDITIONING_SCALE = 0.75  # Balances prompt vs. control image influence
 CONTROL_GUIDANCE_START = 0.0  # When ControlNet conditioning starts (0.0 = beginning)
@@ -84,8 +86,11 @@ USE_QUANTIZATION = True
 
 
 # Image sizes, usually sdxl is 1024x1024 but res-adapter lets us change this
-DEFAULT_IMAGE_WIDTH = 512
-DEFAULT_IMAGE_HEIGHT = 256
+SDXL_WIDTH = 1024
+SDXL_HEIGHT = 1024
+
+RESA_HEIGHT=480
+RESA_WIDTH=640
 
 DISPLAY_WIDTH = 1920  # Width for web display
 DISPLAY_HEIGHT = 1080  # Height for web display
@@ -115,8 +120,8 @@ CAMERA_ID = 0  # Webcam index (0 for default camera)
 # todo: play around with capture settings for speed/quality
 
 # Image dimensions
-CAMERA_WIDTH = DEFAULT_IMAGE_WIDTH #DEFAULT_IMAGE_WIDTH  # Width for model input/output
-CAMERA_HEIGHT = DEFAULT_IMAGE_HEIGHT #DEFAULT_IMAGE_HEIGHT  # Height for model input/output
+CAMERA_WIDTH = SDXL_WIDTH #DEFAULT_IMAGE_WIDTH  # Width for model input/output
+CAMERA_HEIGHT = SDXL_HEIGHT #DEFAULT_IMAGE_HEIGHT  # Height for model input/output
 
 # FPS for the video stream
 CAMERA_FPS = 30
