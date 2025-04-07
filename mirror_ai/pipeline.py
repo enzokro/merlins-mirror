@@ -13,6 +13,7 @@ from mirror_ai.controlnet.controlnet_union import ControlNetModel_Union
 from controlnet_aux import MidasDetector, OpenposeDetector
 from huggingface_hub import hf_hub_download
 from diffusers.utils.torch_utils import randn_tensor
+import torch_tensorrt
 from safetensors.torch import load_file
 from torchao.quantization import swap_conv2d_1x1_to_linear
 from dotenv import load_dotenv
@@ -143,9 +144,10 @@ class ImagePipeline:
         # apply_dynamic_quant(self.pipeline.vae, dynamic_quant_filter_fn)
 
         ## Compile the UNet, VAE, and ControlNet
-        # self.pipeline.unet = torch.compile(self.pipeline.unet, mode="max-autotune", fullgraph=True)
-        # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, mode="max-autotune", fullgraph=True)
-        # self.pipeline.controlnet = torch.compile(self.pipeline.controlnet, mode="max-autotune", fullgraph=True)
+        backend="tensorrt"
+        self.pipeline.unet = torch.compile(self.pipeline.unet, backend=backend, mode="max-autotune", fullgraph=True)
+        self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, backend=backend, mode="max-autotune", fullgraph=True)
+        self.pipeline.controlnet = torch.compile(self.pipeline.controlnet, backend=backend, mode="max-autotune", fullgraph=True)
 
         print("Pipeline loaded.") 
 
