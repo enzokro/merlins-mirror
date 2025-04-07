@@ -17,3 +17,4 @@ controlnet-cache/
 controlnet-preprocessor-cache/
 persist/
 local_models/
+*.jpg
