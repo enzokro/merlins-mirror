@@ -144,10 +144,10 @@ class ImagePipeline:
         # apply_dynamic_quant(self.pipeline.vae, dynamic_quant_filter_fn)
 
         ## Compile the UNet, VAE, and ControlNet
-        backend="tensorrt"
-        self.pipeline.unet = torch.compile(self.pipeline.unet, backend=backend, mode="max-autotune", fullgraph=True)
-        self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, backend=backend, mode="max-autotune", fullgraph=True)
-        self.pipeline.controlnet = torch.compile(self.pipeline.controlnet, backend=backend, mode="max-autotune", fullgraph=True)
+        # backend="tensorrt"
+        # self.pipeline.unet = torch.compile(self.pipeline.unet, backend=backend, mode="max-autotune", fullgraph=True)
+        # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, backend=backend, mode="max-autotune", fullgraph=True)
+        # self.pipeline.controlnet = torch.compile(self.pipeline.controlnet, backend=backend, mode="max-autotune", fullgraph=True)
 
         print("Pipeline loaded.") 
 
