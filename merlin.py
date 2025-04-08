@@ -14,7 +14,8 @@ def go_merlin(request_queue, result_queue):
         import base64
         from io import BytesIO
         import torch
-        from mirror_ai.pipeline import ImagePipeline
+        # from mirror_ai.pipeline import ImagePipeline
+        from mirror_ai.pipeline_dream_pcm_sd15 import ImagePipeline
         from mirror_ai.video import VideoStreamer
         from mirror_ai import config
         

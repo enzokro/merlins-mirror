@@ -7,6 +7,7 @@ from diffusers import (
     EulerDiscreteScheduler,
     HeunDiscreteScheduler,
     PNDMScheduler,
+    TCDScheduler
 )
 from dotenv import load_dotenv
 
@@ -34,7 +35,7 @@ SDXL_LIGHTNING_REPO_ID = "ByteDance/SDXL-Lightning"
 
 # --- Pipeline Configuration ---
 # Number of inference steps. MUST match the loaded UNet checkpoint (e.g., 2, 4, 8).
-N_STEPS = 4
+N_STEPS = 2
 # Template for UNet checkpoint filenames. Use .format(n_steps=N_STEPS).
 LIGHTNING_CKPT_TEMPLATE = "sdxl_lightning_{n_steps}step_unet.safetensors"
 # Device to run the pipeline on ("cuda" or "cpu"). CUDA is highly recommended.
@@ -72,9 +73,10 @@ SCHEDULERS = {
     "K_EULER_ANCESTRAL": EulerAncestralDiscreteScheduler,
     "K_EULER": EulerDiscreteScheduler,
     "PNDM": PNDMScheduler,
+    "TCD": TCDScheduler,
 }
 
-SCHEDULER_NAME = "K_EULER"
+SCHEDULER_NAME = "TCD"
 
 # --- Scheduler Configuration ---
 # Timestep spacing strategy. MUST be "trailing" for SDXL Lightning UNets (except 1-step).
@@ -85,12 +87,12 @@ SCHEDULER_TIMESTEP_SPACING = "trailing"
 USE_QUANTIZATION = True  
 
 
-# Image sizes, usually sdxl is 1024x1024 but res-adapter lets us change this
-SDXL_WIDTH = 1024
-SDXL_HEIGHT = 1024
+# # Image sizes, usually sdxl is 1024x1024 but res-adapter lets us change this
+# SDXL_WIDTH = 1024
+# SDXL_HEIGHT = 1024
 
-RESA_HEIGHT=480
-RESA_WIDTH=640
+RESA_HEIGHT=360 # Default height for SD1.5
+RESA_WIDTH=480 # Default width for SD1.5
 
 DISPLAY_WIDTH = 1920  # Width for web display
 DISPLAY_HEIGHT = 1080  # Height for web display
