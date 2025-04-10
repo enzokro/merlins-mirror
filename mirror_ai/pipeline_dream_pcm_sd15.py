@@ -6,6 +6,7 @@ from diffusers import (
     StableDiffusionXLControlNetUnionPipeline,
     StableDiffusionXLControlNetImg2ImgPipeline,
     StableDiffusionControlNetPipeline,
+    StableDiffusionControlNetImg2ImgPipeline,
     UNet2DConditionModel,
     AutoencoderKL,
     ControlNetUnionModel,
@@ -29,11 +30,11 @@ from . import config
 from .utils import dynamic_quant_filter_fn, conv_filter_fn
 
 # small torch speedups for compilation
-# torch.backends.cuda.matmul.allow_tf32 = True
-# torch._inductor.config.conv_1x1_as_mm = True
-# torch._inductor.config.coordinate_descent_tuning = True
-# torch._inductor.config.epilogue_fusion = False
-# torch._inductor.config.coordinate_descent_check_all_directions = True
+torch.backends.cuda.matmul.allow_tf32 = True
+torch._inductor.config.conv_1x1_as_mm = True
+torch._inductor.config.coordinate_descent_tuning = True
+torch._inductor.config.epilogue_fusion = False
+torch._inductor.config.coordinate_descent_check_all_directions = True
 # # for the linear swaps
 # torch._inductor.config.force_fuse_int_mm_with_mul = True
 # torch._inductor.config.use_mixed_mm = True
@@ -44,6 +45,7 @@ IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 
 # set the pipeline class
 pipe_class = StableDiffusionControlNetPipeline
+pipe_class_img2img = StableDiffusionControlNetImg2ImgPipeline
 
 
 class ImagePipeline:
@@ -58,7 +60,6 @@ class ImagePipeline:
         print("--- Starting Pipeline Loading Process ---")
 
         # Load SDXL Lightning UNet
-        print(f"Loading SDXL Lightning {config.N_STEPS}-Step UNet...")
 
         # # Load ControlNet Models
         self.depth_model = MidasDetector.from_pretrained("lllyasviel/Annotators").to(config.DEVICE)
@@ -87,50 +88,59 @@ class ImagePipeline:
 
         # Create the Full Pipeline with Injected UNet, ControlNet, and VAE
         print("Creating the pipeline...")
+        # pipeline = pipe_class_img2img.from_pretrained(
         pipeline = pipe_class.from_pretrained(
             'lykon/dreamshaper-8',
             controlnet=controlnet_model,   # Inject the ControlNet
+            safety_checker=None,
             torch_dtype=config.DTYPE,
             use_safetensors=True,
             variant="fp16"              
         ).to(config.DEVICE)
 
         # Configure the Scheduler (CRITICAL for SDXL Lightning)
+        scheduler_name = "DDIM"
         print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
-        scheduler_name = "DPMSolverMultistep"
         pipeline.scheduler = config.SCHEDULERS[scheduler_name].from_config(
             pipeline.scheduler.config,
             num_train_timesteps=1000,
 
-            # # For DDIM
-            # timestep_spacing="trailing", 
-            # clip_sample=False, 
-            # set_alpha_to_one=False,
+            # For DDIM
+            timestep_spacing="trailing", 
+            clip_sample=False, 
+            set_alpha_to_one=False,
+
+            # # For TCD
+            # beta_start=0.00085,
+            # beta_end=0.012,
+            # beta_schedule="scaled_linear",
+            # timestep_spacing="trailing",
             
-            # For DPMSolverMultistep
-            use_karras_sigmas=True, 
-            algorithm_type="sde-dpmsolver++",
-            # Optional (often beneficial for PCM consistency models):
-            timestep_spacing="trailing",
-            solver_order=2,               # optimal solver order for speed/quality balance
-            lower_order_final=True,       # helps improve stability at very low steps (e.g., 2 steps)
+            # # For DPMSolverMultistep
+            # use_karras_sigmas=True, 
+            # algorithm_type="sde-dpmsolver++",
+            # # Optional (often beneficial for PCM consistency models):
+            # timestep_spacing="trailing",
+            # solver_order=2,               # optimal solver order for speed/quality balance
+            # lower_order_final=True,       # helps improve stability at very low steps (e.g., 2 steps)
         )
         print("Scheduler Configured.")
 
-        # Set up Res-Adapter
-        print("Loading Res-Adapter...")
-        resadapter_model_name = "resadapter_v2_sd1.5"
-        pipeline.load_lora_weights(
-            hf_hub_download(
-                repo_id="jiaxiangc/res-adapter", 
-                subfolder=resadapter_model_name, 
-                filename="pytorch_lora_weights.safetensors",
-            ), 
-            adapter_name="res_adapter",
-            )
+        # # Set up Res-Adapter
+        # print("Loading Res-Adapter...")
+        # resadapter_model_name = "resadapter_v2_sd1.5"
+        # pipeline.load_lora_weights(
+        #     hf_hub_download(
+        #         repo_id="jiaxiangc/res-adapter", 
+        #         subfolder=resadapter_model_name, 
+        #         filename="pytorch_lora_weights.safetensors",
+        #     ), 
+        #     adapter_name="res_adapter",
+        #     )
 
         # load PCM weights
-        checkpoint = f"pcm_sd15_smallcfg_{config.N_STEPS}step_converted.safetensors"
+        # checkpoint = f"pcm_sd15_smallcfg_{config.N_STEPS}step_converted.safetensors"
+        checkpoint = f"pcm_sd15_normalcfg_{config.N_STEPS}step_converted.safetensors"
         mode = "sd15"
         pipeline.load_lora_weights(
             "wangfuyun/PCM_Weights", weight_name=checkpoint, subfolder=mode,
@@ -138,7 +148,16 @@ class ImagePipeline:
         )
 
         # Set the adapters and weights
-        pipeline.set_adapters(["res_adapter", "pcm"], adapter_weights=[0.7, 1.0])
+        pipeline.set_adapters(
+            [
+                # "res_adapter", 
+                "pcm",
+            ], 
+            adapter_weights=
+            [
+                # 0.7, 
+                1.0,
+            ])
         # pipeline.fuse_lora(adapter_names=["res_adapter", "pcm"], lora_scale=1.0)
 
         # set the pipeline
@@ -169,6 +188,29 @@ class ImagePipeline:
         # ## TODO: figure out dynamic quantization
         swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
         swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
+
+        # # Compile the UNet, VAE, and ControlNet
+        # backend="tensorrt"
+        # print(f"Compiling the models with backend: {backend}")
+        # self.pipeline.unet = torch.compile(self.pipeline.unet, backend=backend, mode="max-autotune", fullgraph=True)
+        # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, backend=backend, mode="max-autotune", fullgraph=True)
+
+        # warmup the model
+        # print("Warming up the model...")
+        # img = randn_tensor((3, 512, 512), generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
+        # control_img = randn_tensor((1, 512, 512), generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
+        # # self.pipeline(
+        # #     prompt="TEST",
+        # #     ## regular pipeline
+        # #     # image=[img, img],
+        # #     ## img2img pipeline
+        # #     image=[img],
+        # #     control_image=[control_img, control_img],
+        # #     num_inference_steps=1,
+        # #     width=config.RESA_WIDTH,
+        # #     height=config.RESA_HEIGHT,
+        # # )
+
 
         print("Pipeline loaded.") 
 
@@ -210,16 +252,15 @@ class ImagePipeline:
         # print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
         size = (config.RESA_WIDTH, config.RESA_HEIGHT)
     
-        # get depth image
+        # # get depth image
         depth_image = self.depth_model(camera_frame, output_type="pil").resize(size)
 
         # get pose image
-        pose_image = self.openpose(camera_frame, hand_and_face=False).resize(size)
+        pose_image = self.openpose(camera_frame, hand_and_face=True).resize(size)
 
         control_image = [
             pose_image,
             depth_image,
-            # canny_image,
         ]
 
         # save the images
@@ -227,12 +268,20 @@ class ImagePipeline:
         depth_image.save(f'{IMAGE_DEBUG_PATH}/image_pose_shape_{depth_image.size}.jpg')
 
         ## manual controlnet params
-        cn_scale = [1.0, 1.0]
-        control_start = [0., 0.]
-        control_end = [1.0, 1.0]
-        size = (config.RESA_WIDTH, config.RESA_HEIGHT)
-        # size=(config.SDXL_WIDTH, config.SDXL_HEIGHT)
-        guidance_scale = 1.5
+        cn_scale = [
+            1.0, 
+            1.0,
+        ]
+        control_start = [
+            0., 
+            0.,
+        ]
+        control_end = [
+            1.0, 
+            1.0,
+        ]
+        guidance_scale = 2.5
+        strength=0.8
 
         try:
             with torch.no_grad():
@@ -247,11 +296,19 @@ class ImagePipeline:
 
                     ## TODO: fix
                     # fixed generator and latents for consistent results between frames
-                    # generator=self.generator,
-                    # latents=self.latents, 
+                    generator=self.generator,
+                    latents=self.latents, 
 
                     # for regular controlnet pipeline
                     image=control_image,
+
+                    # # for img2img pipeline
+                    # image=camera_frame,
+                    # control_image=control_image,
+                    # strength=strength,
+
+
+                    # controlnet params
                     controlnet_conditioning_scale=cn_scale,
                     controlnet_guidance_start=control_start,
                     controlnet_guidance_end=control_end,

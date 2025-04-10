@@ -16,6 +16,7 @@ def go_merlin(request_queue, result_queue):
         import torch
         # from mirror_ai.pipeline import ImagePipeline
         from mirror_ai.pipeline_dream_pcm_sd15 import ImagePipeline
+        # from mirror_ai.pipeline_dream_pcm_sdxl_xinsir import ImagePipeline
         from mirror_ai.video import VideoStreamer
         from mirror_ai import config
         
@@ -57,6 +58,7 @@ def go_merlin(request_queue, result_queue):
                     elif request["type"] == config.REQUEST_SET_PROMPT:
                         current_prompt = request["prompt"]
                         print(f"New prompt: {current_prompt}")
+                        current_prompt += ", coherent, stable, smooth, pleasant"
 
                     # refresh the latents
                     elif request["type"] == config.REQUEST_REFRESH_LATENTS:

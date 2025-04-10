@@ -35,7 +35,7 @@ SDXL_LIGHTNING_REPO_ID = "ByteDance/SDXL-Lightning"
 
 # --- Pipeline Configuration ---
 # Number of inference steps. MUST match the loaded UNet checkpoint (e.g., 2, 4, 8).
-N_STEPS = 2
+N_STEPS = 4
 # Template for UNet checkpoint filenames. Use .format(n_steps=N_STEPS).
 LIGHTNING_CKPT_TEMPLATE = "sdxl_lightning_{n_steps}step_unet.safetensors"
 # Device to run the pipeline on ("cuda" or "cpu"). CUDA is highly recommended.
@@ -91,14 +91,15 @@ USE_QUANTIZATION = True
 # SDXL_WIDTH = 1024
 # SDXL_HEIGHT = 1024
 
-RESA_HEIGHT=360 # Default height for SD1.5
-RESA_WIDTH=480 # Default width for SD1.5
+RESA_HEIGHT=512#256 # Default height for SD1.5
+RESA_WIDTH=512#256 # Default width for SD1.5
 
 DISPLAY_WIDTH = 1920  # Width for web display
 DISPLAY_HEIGHT = 1080  # Height for web display
 
 # Negative prompt for SDXL
-NEGATIVE_PROMPT = "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality"
+# NEGATIVE_PROMPT = "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, low quality, distorted, frayed"
+NEGATIVE_PROMPT = "out of frame, lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature"
 
 # Frame processing
 FRAME_BLEND = 0.75
@@ -122,8 +123,10 @@ CAMERA_ID = 0  # Webcam index (0 for default camera)
 # todo: play around with capture settings for speed/quality
 
 # Image dimensions
-CAMERA_WIDTH = SDXL_WIDTH #DEFAULT_IMAGE_WIDTH  # Width for model input/output
-CAMERA_HEIGHT = SDXL_HEIGHT #DEFAULT_IMAGE_HEIGHT  # Height for model input/output
+WEBCAM_DEFAULT_WIDTH = 640
+WEBCAM_DEFAULT_HEIGHT = 480
+CAMERA_WIDTH = WEBCAM_DEFAULT_WIDTH #DEFAULT_IMAGE_WIDTH  # Width for model input/output
+CAMERA_HEIGHT = WEBCAM_DEFAULT_HEIGHT #DEFAULT_IMAGE_HEIGHT  # Height for model input/output
 
 # FPS for the video stream
 CAMERA_FPS = 30
