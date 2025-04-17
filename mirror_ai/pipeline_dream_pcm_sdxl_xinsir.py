@@ -99,6 +99,7 @@ class ImagePipeline:
         # Configure the Scheduler (CRITICAL for SDXL Lightning)
         scheduler_name = "DDIM"
         print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
+        scheduler_name = "DPMSolverMultistep"
         pipeline.scheduler = config.SCHEDULERS[scheduler_name].from_config(
             pipeline.scheduler.config,
             # num_train_timesteps=1000,
@@ -246,17 +247,19 @@ class ImagePipeline:
         camera_frame = camera_frame.resize((config.RESA_WIDTH, config.RESA_HEIGHT))
 
         # print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
-        # start_time = time.time()
+
+        # set the image size
+        size = (config.RESA_WIDTH, config.RESA_HEIGHT)
+        # size=(config.SDXL_WIDTH, config.SDXL_HEIGHT)
     
         # get depth image
         depth_image = self.depth_model(camera_frame, output_type="pil").resize(size)
 
-        pose_image = self.openpose(camera_frame, hand_and_face=True).resize(size)
+        pose_image = self.openpose(camera_frame, hand_and_face=True, output_type="pil").resize(size)
 
         control_image = [
             pose_image,
             depth_image,
-            # canny_image,
         ]
 
         # save the images

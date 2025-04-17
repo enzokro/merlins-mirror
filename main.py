@@ -2,11 +2,14 @@
 from fasthtml.common import *
 from monsterui.all import *
 import os
+import io
 import sys
 import asyncio
 import signal
 import multiprocessing as mp
 from dotenv import load_dotenv
+from PIL import Image
+
 
 from merlin import go_merlin
 from mirror_ai import config
@@ -148,8 +151,18 @@ async def generate():
         result = await async_queue.get()
         
         if result["type"] == config.RESULT_FRAME:
+            image_str = result['data']
+            image = Image.open(io.BytesIO(image_str))
+            image = image.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT))
+
+            # turn into base64 (easier to send through queue)
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format='JPEG', quality=95)
+            img_byte_arr.seek(0)
+            encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
+
             # Create image tag with base64 data
-            data_uri = f"data:image/jpeg;base64,{result['data']}"
+            data_uri = f"data:image/jpeg;base64,{encoded_img}"
             img = Img(src=data_uri, cls="image-fit")
             yield sse_message(img)
             

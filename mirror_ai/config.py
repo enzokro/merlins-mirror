@@ -88,11 +88,11 @@ USE_QUANTIZATION = True
 
 
 # # Image sizes, usually sdxl is 1024x1024 but res-adapter lets us change this
-# SDXL_WIDTH = 1024
-# SDXL_HEIGHT = 1024
+SDXL_WIDTH = 1024
+SDXL_HEIGHT = 1024
 
-RESA_HEIGHT=512#256 # Default height for SD1.5
-RESA_WIDTH=512#256 # Default width for SD1.5
+RESA_HEIGHT=512 # Default height for SD1.5 is 512
+RESA_WIDTH=512 # Default width for SD1.5 is 512
 
 DISPLAY_WIDTH = 1920  # Width for web display
 DISPLAY_HEIGHT = 1080  # Height for web display
@@ -115,7 +115,7 @@ RESULT_ERROR = "error"
 RESULT_STATUS = "status"
 
 # JPEG quality for the web app
-JPEG_QUALITY = 90
+JPEG_QUALITY = 95
     
 # Video settings
 CAMERA_ID = 0  # Webcam index (0 for default camera)

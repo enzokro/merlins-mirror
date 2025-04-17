@@ -77,7 +77,7 @@ class ImagePipeline:
         self.feature_extractor = DPTFeatureExtractor.from_pretrained("Intel/dpt-hybrid-midas")
         self.openpose = OpenposeDetector.from_pretrained("lllyasviel/ControlNet").to(config.DEVICE)
         controlnet_model_depth = ControlNetModel.from_pretrained(
-            "diffusers/controlnet-depth-sdxl-1.0",
+            "xinsir/controlnet-depth-sdxl-1.0",
             variant="fp16",
             use_safetensors=True,
             torch_dtype=config.DTYPE,
@@ -89,7 +89,7 @@ class ImagePipeline:
         #     torch_dtype=config.DTYPE,
         # ).to(config.DEVICE)
         controlnet_model_pose = ControlNetModel.from_pretrained(
-            "thibaud/controlnet-openpose-sdxl-1.0",
+            "xinsir/controlnet-openpose-sdxl-1.0",
             torch_dtype=torch.float16,
         ).to(config.DEVICE)
         

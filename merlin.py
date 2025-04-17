@@ -88,7 +88,7 @@ def go_merlin(request_queue, result_queue):
                     # pil_frame.save(f'{IMAGE_DEBUG_PATH}/camera_06_pil_shape_{pil_frame.size}.jpg')
 
                     # resize keeping aspect ratio
-                    pil_frame = pil_frame.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT))
+                    # pil_frame = pil_frame.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT))
                     # pil_frame.save(f'{IMAGE_DEBUG_PATH}/camera_07_resized_shape_{pil_frame.size}.jpg')
 
                     # turn into base64 (easier to send through queue)
