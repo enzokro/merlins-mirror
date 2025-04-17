@@ -11,7 +11,9 @@ from diffusers import (
     ControlNetUnionModel,
     DiffusionPipeline,
     ControlNetModel,
+    AutoencoderTiny,
 )
+from diffusers.models.attention_processor import AttnProcessor2_0
 import cv2
 from transformers import DPTFeatureExtractor, DPTForDepthEstimation
 from mirror_ai.controlnet.controlnet_union import ControlNetModel_Union
@@ -48,7 +50,10 @@ class ImagePipeline:
         print("--- Starting Pipeline Loading Process ---")
 
         # Load SDXL Lightning UNet
-        print(f"Loading SDXL Lightning {config.N_STEPS}-Step UNet...")
+        print(f"Loading SD1.5 {config.N_STEPS}-Step Model...")
+
+        # Load the tiny VAE
+        vae = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(device=config.DEVICE, dtype=config.DTYPE)
 
 
         # # Load ControlNet Models
@@ -78,11 +83,14 @@ class ImagePipeline:
             # 'Lykon/dreamshaper-xl-lightning',
             'lykon/dreamshaper-8',
             controlnet=controlnet_model,   # Inject the ControlNet
-            # vae=vae,                     # Inject the VAE
+            vae=vae,                     # Inject the VAE
             torch_dtype=config.DTYPE,
             use_safetensors=True,
             variant="fp16"              
         ).to(config.DEVICE)
+
+        # make sure we're using the new attention processor
+        pipeline.unet.set_attn_processor(AttnProcessor2_0())
 
         # Configure the Scheduler (CRITICAL for SDXL Lightning)
         print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")

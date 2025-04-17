@@ -12,6 +12,7 @@ from diffusers import (
     ControlNetUnionModel,
     DiffusionPipeline,
     ControlNetModel,
+    AutoencoderTiny,
 )
 import cv2
 from transformers import DPTFeatureExtractor, DPTForDepthEstimation
@@ -85,6 +86,9 @@ class ImagePipeline:
             controlnet_model_depth,
         ]
 
+        # Load the tiny VAE
+        vae = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(config.DEVICE, dtype=config.DTYPE)
+
 
         # Create the Full Pipeline with Injected UNet, ControlNet, and VAE
         print("Creating the pipeline...")
@@ -92,6 +96,7 @@ class ImagePipeline:
         pipeline = pipe_class.from_pretrained(
             'lykon/dreamshaper-8',
             controlnet=controlnet_model,   # Inject the ControlNet
+            vae=vae, # Inject the VAE
             safety_checker=None,
             torch_dtype=config.DTYPE,
             use_safetensors=True,

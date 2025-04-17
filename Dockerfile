@@ -31,6 +31,7 @@ RUN apt-get update && \
         cmake \
         gcc \
         g++ \
+        tar \ 
         ninja-build \
         python3 \
         python3-pip \
@@ -39,6 +40,7 @@ RUN apt-get update && \
         wget \
         ca-certificates \
         software-properties-common \
+        libgl1-mesa-dev \ 
     && rm -rf /var/lib/apt/lists/*
 
 # Install 'uv' - the fast Python package installer and resolver.
@@ -86,6 +88,11 @@ RUN uv run accelerate config default --mixed_precision fp16
 # Expose any necessary ports (if your application is a web service, etc.)
 EXPOSE 10295
 
+# Sanity check the paths
+RUN echo "export PATH=/usr/local/cuda/bin:$PATH" >> /etc/bash.bashrc \
+    && echo "export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> /etc/bash.bashrc \
+    && echo "export CUDA_HOME=/usr/local/cuda-12.4" >> /etc/bash.bashrc
+
 # Final check for CUDA - this command should succeed if CUDA is set up correctly.
 RUN which nvcc
 
@@ -94,6 +101,13 @@ RUN apt-get update && apt-get install ffmpeg libsm6 libxext6  -y
 
 # install the nightly diffusers version
 RUN uv pip install git+https://github.com/huggingface/diffusers
+
+# install xformers
+RUN uv pip install -U xformers --index-url https://download.pytorch.org/whl/cu124
+
+# install streamdiffusion
+RUN uv pip install "git+https://github.com/cumulo-autumn/StreamDiffusion.git@main#egg=streamdiffusion[tensorrt]"
+RUN uv run python -m streamdiffusion.tools.install-tensorrt
 
 # copy the project files, put here for cache purposes
 COPY .docker_env .env
