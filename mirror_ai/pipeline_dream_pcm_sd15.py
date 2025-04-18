@@ -29,6 +29,7 @@ import os
 
 from . import config
 from .utils import dynamic_quant_filter_fn, conv_filter_fn
+from .stream_batch_pipeline import StreamBatchPipeline
 
 # small torch speedups for compilation
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -47,6 +48,8 @@ IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 # set the pipeline class
 pipe_class = StableDiffusionControlNetPipeline
 pipe_class_img2img = StableDiffusionControlNetImg2ImgPipeline
+
+# pipe_class = StreamBatchPipeline
 
 
 class ImagePipeline:
@@ -93,18 +96,40 @@ class ImagePipeline:
         # Create the Full Pipeline with Injected UNet, ControlNet, and VAE
         print("Creating the pipeline...")
         # pipeline = pipe_class_img2img.from_pretrained(
-        pipeline = pipe_class.from_pretrained(
+        pipeline_base = pipe_class.from_pretrained(
             'lykon/dreamshaper-8',
             controlnet=controlnet_model,   # Inject the ControlNet
             vae=vae, # Inject the VAE
             safety_checker=None,
             torch_dtype=config.DTYPE,
             use_safetensors=True,
-            variant="fp16"              
+            variant="fp16",
+
+            # for StreamBatchPipeline
+            num_inference_steps=config.N_STEPS,
+            use_denoising_batch=True,
+            frame_buffer_size=config.FRAME_BUFFER_SIZE,
+
         ).to(config.DEVICE)
 
-        # Configure the Scheduler (CRITICAL for SDXL Lightning)
+        # Set StreamBatch specific parameters AFTER initialization
+        # Check if the loaded pipeline is indeed our StreamBatchPipeline
+        if isinstance(pipeline_base, StreamBatchPipeline):
+            print("Setting StreamBatch specific parameters...")
+            pipeline_base.set_stream_batch_options(
+                num_inference_steps=config.N_STEPS,
+                frame_buffer_size=config.FRAME_BUFFER_SIZE,
+                use_denoising_batch=True # Set your desired value
+            )
+            print("StreamBatch parameters set.")
+        else:
+            print("Warning: Loaded pipeline is not StreamBatchPipeline, skipping custom parameter setup.")
+
+        pipeline = pipeline_base
+
+        # Configure the Scheduler (CRITICAL for our models)
         scheduler_name = "DDIM"
+        # scheduler_name = "TCD"
         print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
         pipeline.scheduler = config.SCHEDULERS[scheduler_name].from_config(
             pipeline.scheduler.config,
@@ -115,13 +140,13 @@ class ImagePipeline:
             clip_sample=False, 
             set_alpha_to_one=False,
 
-            # # For TCD
+            # # # For TCD
             # beta_start=0.00085,
             # beta_end=0.012,
             # beta_schedule="scaled_linear",
             # timestep_spacing="trailing",
             
-            # # For DPMSolverMultistep
+            # For DPMSolverMultistep
             # use_karras_sigmas=True, 
             # algorithm_type="sde-dpmsolver++",
             # # Optional (often beneficial for PCM consistency models):
@@ -167,6 +192,10 @@ class ImagePipeline:
 
         # set the pipeline
         self.pipeline = pipeline
+        self.pipeline.unet.to(config.DTYPE)
+        self.pipeline.vae.to(config.DTYPE)
+        self.pipeline.controlnet.to(config.DTYPE)
+        self.pipeline.to(config.DEVICE, dtype=config.DTYPE)
 
         # Initialize latents
         batch_size = 1
@@ -183,16 +212,17 @@ class ImagePipeline:
 
         # Speedup optimizations
         # # Fuse the QKV projections in the UNet.
-        self.pipeline.fuse_qkv_projections()
+        # self.pipeline.fuse_qkv_projections()
 
-        # ## Move the UNet and ControlNet to channels_last
-        if config.DEVICE not in ("mps", "cpu"):
-            self.pipeline.unet.to(memory_format=torch.channels_last)
-            self.pipeline.controlnet.to(memory_format=torch.channels_last)
+        # NOTE: removing these for re-compilation
+        # # ## Move the UNet and ControlNet to channels_last
+        # if config.DEVICE not in ("mps", "cpu"):
+        #     self.pipeline.unet.to(memory_format=torch.channels_last)
+        #     self.pipeline.controlnet.to(memory_format=torch.channels_last)
 
-        # ## TODO: figure out dynamic quantization
-        swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
-        swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
+        # # ## TODO: figure out dynamic quantization
+        # swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
+        # swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
 
         # # Compile the UNet, VAE, and ControlNet
         # backend="tensorrt"
@@ -216,8 +246,8 @@ class ImagePipeline:
         # #     height=config.RESA_HEIGHT,
         # # )
 
-
         print("Pipeline loaded.") 
+        return self.pipeline
 
 
     def generate(

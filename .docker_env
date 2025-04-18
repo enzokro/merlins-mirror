@@ -10,6 +10,7 @@ HF_XET_CACHE="/app/models/xet"
 HF_ASSETS_CACHE="/app/models/assets"
 
 IMAGE_DEBUG_PATH="/app/persist"
+COMPILED_MODELS_DIR="/app/persist/compiled_models"
 
 
 

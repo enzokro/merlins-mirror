@@ -36,6 +36,7 @@ SDXL_LIGHTNING_REPO_ID = "ByteDance/SDXL-Lightning"
 # --- Pipeline Configuration ---
 # Number of inference steps. MUST match the loaded UNet checkpoint (e.g., 2, 4, 8).
 N_STEPS = 4
+FRAME_BUFFER_SIZE = 1 # for StreamBatchPipeline
 # Template for UNet checkpoint filenames. Use .format(n_steps=N_STEPS).
 LIGHTNING_CKPT_TEMPLATE = "sdxl_lightning_{n_steps}step_unet.safetensors"
 # Device to run the pipeline on ("cuda" or "cpu"). CUDA is highly recommended.

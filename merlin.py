@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
+engine_dir = os.getenv("COMPILED_MODELS_DIR")
 
 def go_merlin(request_queue, result_queue):
     """Turns webcam frames into AI-generated images."""
@@ -19,12 +20,19 @@ def go_merlin(request_queue, result_queue):
         # from mirror_ai.pipeline_dream_pcm_sdxl_xinsir import ImagePipeline
         from mirror_ai.video import VideoStreamer
         from mirror_ai import config
-        
+        from mirror_ai.compile.go_compile import load_optimized_pipeline
         print("Starting Merlin...")
         
         # set up the image transformer and the webcam stream
-        pipeline = ImagePipeline()
-        pipeline.load(config.SCHEDULER_NAME)
+        image_pipeline = ImagePipeline()
+        pipeline = image_pipeline.load(config.SCHEDULER_NAME)
+
+        # load in the compiled pipeline
+        compiled_name = "dream_pcm_sd15"
+        print(f"Loading compiled pipeline {compiled_name} from {engine_dir}")
+        pipeline = load_optimized_pipeline(pipeline=pipeline, name=compiled_name, engine_dir=engine_dir)
+        image_pipeline.pipeline = pipeline
+
         video_streamer = VideoStreamer(
             camera_id=config.CAMERA_ID,
             width=config.CAMERA_WIDTH,
@@ -62,7 +70,7 @@ def go_merlin(request_queue, result_queue):
 
                     # refresh the latents
                     elif request["type"] == config.REQUEST_REFRESH_LATENTS:
-                        pipeline.refresh_latents()
+                        image_pipeline.refresh_latents()
                         print("Latents refreshed")
 
             except Exception as e:
@@ -79,21 +87,15 @@ def go_merlin(request_queue, result_queue):
                 camera_frame.save(f'{IMAGE_DEBUG_PATH}/camera_04_queue_shape_{camera_frame.size}.jpg')
                 if camera_frame is not None:
                     # transform the webcam image
-                    processed_frame = pipeline.generate(current_prompt, camera_frame)
+                    processed_frame = image_pipeline.generate(current_prompt, camera_frame)
                     # processed_frame.save(f'{IMAGE_DEBUG_PATH}/camera_05_generated_shape_{processed_frame.size}.jpg')
+
+                    # resize the image once, here
+                    processed_frame = processed_frame.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT))
                     
-                    # convert to storable format
-                    # pil_frame = convert_to_pil_image(processed_frame)
-                    pil_frame = processed_frame
-                    # pil_frame.save(f'{IMAGE_DEBUG_PATH}/camera_06_pil_shape_{pil_frame.size}.jpg')
-
-                    # resize keeping aspect ratio
-                    # pil_frame = pil_frame.resize((config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT))
-                    # pil_frame.save(f'{IMAGE_DEBUG_PATH}/camera_07_resized_shape_{pil_frame.size}.jpg')
-
                     # turn into base64 (easier to send through queue)
                     img_byte_arr = BytesIO()
-                    pil_frame.save(img_byte_arr, format='JPEG', quality=config.JPEG_QUALITY)
+                    processed_frame.save(img_byte_arr, format='JPEG', quality=config.JPEG_QUALITY)
                     img_byte_arr.seek(0)
                     encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
                     
@@ -130,8 +132,8 @@ def go_merlin(request_queue, result_queue):
                 video_streamer.stop()
 
             # cleanup the pipeline
-            if pipeline is not None:
-                del pipeline
+            if image_pipeline is not None:
+                del image_pipeline
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()

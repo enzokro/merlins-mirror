@@ -77,6 +77,7 @@ RUN uv pip install --no-cache \
     --index-url https://download.pytorch.org/whl/cu124
 # RUN uv pip install --no-cache-dir stable-fast
 RUN uv pip install --no-cache-dir triton
+RUN uv pip install --no-cache-dir tensorrt
 RUN uv pip install --no-cache-dir torch-tensorrt
 
 # Huggingface accelerate
@@ -102,12 +103,23 @@ RUN apt-get update && apt-get install ffmpeg libsm6 libxext6  -y
 # install the nightly diffusers version
 RUN uv pip install git+https://github.com/huggingface/diffusers
 
-# install xformers
-RUN uv pip install -U xformers --index-url https://download.pytorch.org/whl/cu124
+# # install xformers
+# RUN uv pip install -U xformers --index-url https://download.pytorch.org/whl/cu124
 
-# install streamdiffusion
-RUN uv pip install "git+https://github.com/cumulo-autumn/StreamDiffusion.git@main#egg=streamdiffusion[tensorrt]"
-RUN uv run python -m streamdiffusion.tools.install-tensorrt
+# patch in onnxruntime-gpu
+RUN uv pip install onnx
+RUN uv pip install onnxruntime-gpu
+RUN uv pip install onnx_graphsurgeon --index-url https://pypi.ngc.nvidia.com
+
+# patch in polygraphy
+RUN uv pip install colored polygraphy --extra-index-url https://pypi.ngc.nvidia.com
+
+# install cuda-python
+RUN uv pip install cuda-python
+
+# # install streamdiffusion
+# RUN uv pip install "git+https://github.com/cumulo-autumn/StreamDiffusion.git@main#egg=streamdiffusion[tensorrt]"
+# RUN uv run python -m streamdiffusion.tools.install-tensorrt
 
 # copy the project files, put here for cache purposes
 COPY .docker_env .env
@@ -115,6 +127,14 @@ COPY static static
 COPY main.py main.py
 COPY merlin.py merlin.py
 COPY mirror_ai mirror_ai
+COPY run_compile.py run_compile.py
+COPY load_compiled.py load_compiled.py
 
-# start the application
-CMD ["uv", "run", "python", "main.py"]
+# # start the application
+# CMD ["uv", "run", "python", "main.py"]
+
+# # compile the models
+CMD ["uv", "run", "python", "run_compile.py"]
+
+# test load a compiled model
+# CMD ["uv", "run", "python", "load_compiled.py"]

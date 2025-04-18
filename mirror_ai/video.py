@@ -58,7 +58,7 @@ class VideoStreamer:
                     self.frame = pil_image
             
             # Small sleep to reduce CPU usage
-            time.sleep(0.0001)
+            time.sleep(0.03) # ~30fps
     
     def get_current_frame(self):
         """Gets the current frame as a PIL Image"""
