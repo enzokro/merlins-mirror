@@ -16,8 +16,10 @@ def go_merlin(request_queue, result_queue):
         from io import BytesIO
         import torch
         # from mirror_ai.pipeline import ImagePipeline
-        from mirror_ai.pipeline_dream_pcm_sd15 import ImagePipeline
+        # from mirror_ai.pipeline_dream_pcm_sd15 import ImagePipeline
         # from mirror_ai.pipeline_dream_pcm_sdxl_xinsir import ImagePipeline
+        # from mirror_ai.pipeline_dream_pcm_sdxl_turbo import ImagePipeline
+        from mirror_ai.pipeline_sdxl_hyper import ImagePipeline
         from mirror_ai.video import VideoStreamer
         from mirror_ai import config
         from mirror_ai.compile.go_compile import load_optimized_pipeline
@@ -27,11 +29,12 @@ def go_merlin(request_queue, result_queue):
         image_pipeline = ImagePipeline()
         pipeline = image_pipeline.load(config.SCHEDULER_NAME)
 
-        # load in the compiled pipeline
-        compiled_name = "dream_pcm_sd15"
-        print(f"Loading compiled pipeline {compiled_name} from {engine_dir}")
-        pipeline = load_optimized_pipeline(pipeline=pipeline, name=compiled_name, engine_dir=engine_dir)
-        image_pipeline.pipeline = pipeline
+        ## NOTE: not working
+        # # load in the compiled pipeline
+        # compiled_name = "dream_pcm_sd15"
+        # print(f"Loading compiled pipeline {compiled_name} from {engine_dir}")
+        # pipeline = load_optimized_pipeline(pipeline=pipeline, name=compiled_name, engine_dir=engine_dir)
+        # image_pipeline.pipeline = pipeline
 
         video_streamer = VideoStreamer(
             camera_id=config.CAMERA_ID,
@@ -66,7 +69,7 @@ def go_merlin(request_queue, result_queue):
                     elif request["type"] == config.REQUEST_SET_PROMPT:
                         current_prompt = request["prompt"]
                         print(f"New prompt: {current_prompt}")
-                        current_prompt += ", coherent, stable, smooth, pleasant"
+                        current_prompt += ", people in a room, bright background, clear, coherent, stable, smooth, high quality, pristine"
 
                     # refresh the latents
                     elif request["type"] == config.REQUEST_REFRESH_LATENTS:
@@ -84,7 +87,7 @@ def go_merlin(request_queue, result_queue):
             # process camera frames
             try:
                 camera_frame = video_streamer.get_current_frame()
-                camera_frame.save(f'{IMAGE_DEBUG_PATH}/camera_04_queue_shape_{camera_frame.size}.jpg')
+                # camera_frame.save(f'{IMAGE_DEBUG_PATH}/camera_04_queue_shape_{camera_frame.size}.jpg')
                 if camera_frame is not None:
                     # transform the webcam image
                     processed_frame = image_pipeline.generate(current_prompt, camera_frame)

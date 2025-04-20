@@ -38,7 +38,15 @@ class UNet2DConditionModelEngine:
                      print(f"Warning: Unknown input tensor '{name}' found in engine.")
 
         # Sort residual names for consistent mapping (e.g., down_block_res_0, _1, ...)
-        self.down_residual_input_names.sort()
+        def sort_key(name):
+             try:
+                 # Extract the number after the last underscore
+                 return int(name.split('_')[-1])
+             except (ValueError, IndexError):
+                 # Handle cases where the name doesn't end with _<number>
+                 # Place such names last or handle as needed
+                 return float('inf')
+        self.down_residual_input_names.sort(key=sort_key)
 
         print(f"UNet Engine Initialized.")
         print(f"  Total Inputs: {self.input_names}")
@@ -58,32 +66,30 @@ class UNet2DConditionModelEngine:
         **kwargs, # Allow passing other potential kwargs if needed
     ) -> UNet2DConditionOutput:
 
-        # --- Input Validation & Preparation ---
+        # --- Input Validation & Preparation --- #
         if timestep.dtype != torch.float32:
             timestep = timestep.float()
 
-        # Ensure timestep is 1D (handle potential 0D input)
+        # Ensure timestep is 1D
         if timestep.ndim == 0:
-            batch_size = latent_model_input.shape[0] # Use latent input batch size
+            batch_size = latent_model_input.shape[0]
             timestep = timestep.repeat(batch_size)
         elif timestep.ndim != 1:
              raise ValueError(f"Expected timestep to be 0D or 1D, but got {timestep.ndim}D shape: {timestep.shape}")
 
-        # Prepare base shapes and feed dict (mapping pipeline args to engine input names)
-        shape_dict = {
-            "sample": latent_model_input.shape,
-            "timestep": timestep.shape,
-            "encoder_hidden_states": encoder_hidden_states.shape,
-        }
+        # --- Prepare FULL feed_dict and shape_dict BEFORE allocation --- #
         feed_dict = {
             "sample": latent_model_input,
             "timestep": timestep,
             "encoder_hidden_states": encoder_hidden_states,
         }
+        shape_dict = {
+            "sample": latent_model_input.shape,
+            "timestep": timestep.shape,
+            "encoder_hidden_states": encoder_hidden_states.shape,
+        }
 
-        # --- Dynamically Add Residual Shapes & Feed Dict Entries ---
-
-        # Add down block residuals
+        # Add down block residuals to both dicts
         num_expected_down_residuals = len(self.down_residual_input_names)
         if num_expected_down_residuals > 0:
             if down_block_additional_residuals is None:
@@ -93,14 +99,15 @@ class UNet2DConditionModelEngine:
                     f"Mismatch in number of down block residuals. Engine expects {num_expected_down_residuals} ({self.down_residual_input_names}), "
                     f"but received tuple has {len(down_block_additional_residuals)} elements."
                 )
-
             # Map the tuple elements to the named engine inputs
             for i, name in enumerate(self.down_residual_input_names):
                 current_residual = down_block_additional_residuals[i]
+                if current_residual is None:
+                     raise ValueError(f"Received None for down block residual expected at index {i} (name: {name})")
                 shape_dict[name] = current_residual.shape
                 feed_dict[name] = current_residual
 
-        # Add mid block residual
+        # Add mid block residual to both dicts
         if self.mid_residual_input_name is not None:
             if mid_block_additional_residual is None:
                 raise ValueError(f"Engine expects mid block residual ('{self.mid_residual_input_name}'), but 'mid_block_additional_residual' is None.")
@@ -109,14 +116,14 @@ class UNet2DConditionModelEngine:
 
         # --- Allocate Buffers & Infer --- #
 
-        # Allocate buffers based on the complete shape_dict
+        # Allocate buffers based on the *complete* shape_dict
         # The engine wrapper's allocate_buffers method handles determining output shapes now.
         self.engine.allocate_buffers(
-            shape_dict=shape_dict,
+            shape_dict=shape_dict, # Pass the fully populated dict
             device=latent_model_input.device, # Use device from a primary input
         )
 
-        # Run inference
+        # Run inference using the fully populated feed_dict
         outputs = self.engine.infer(
             feed_dict,
             self.stream,

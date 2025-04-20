@@ -83,9 +83,50 @@ app, rt = fast_app(
 @rt('/')
 def index():
     return Title(app_name), Div(
-        # Main Image Container - takes all available space
+        # # Main Image Container - takes all available space
+        # Div(
+        #     Img(src="/static/logo.png", cls="image-fit"),
+        #     id="image-container",
+        #     cls="image-wrapper",
+        #     hx_ext="sse",
+        #     sse_connect="/generate",
+        #     hx_swap="innerHTML",
+        #     sse_swap="message",
+        # ),
+
+        # # Main Image Container - optimize to fill space
+        # Div(
+        #     # The key change is here - add a background-container div
+        #     Div(
+        #         Img(src="/static/logo.png", cls="image-fill"),
+        #         cls="image-background",
+        #     ),
+        #     id="image-container",
+        #     cls="image-wrapper",
+        #     hx_ext="sse",
+        #     sse_connect="/generate",
+        #     hx_swap="innerHTML",
+        #     sse_swap="message",
+        # ),
+
+        # Anchored label
+        DivCentered(
+            FormLabel(app_name, fr="prompt", cls="text-center text-2xl text-primary font-bold"),
+            cls="rounded-lg bg-secondary shadow-md border mb-2 p-2",
+        ),
+
+        # Main Image Container with background-fill effect
         Div(
-            Img(src="/static/logo.png", cls="image-fit"),
+            # Background version (blurred and expanded)
+            Div(
+                cls="image-background-fill",
+                id="background-image"
+            ),
+            # Foreground version (complete image)
+            Div(
+                Img(src="/static/logo.png", cls="image-fit"),
+                cls="image-foreground",
+            ),
             id="image-container",
             cls="image-wrapper",
             hx_ext="sse",
@@ -93,33 +134,35 @@ def index():
             hx_swap="innerHTML",
             sse_swap="message",
         ),
-        
+
         # Controls Section - fixed height at bottom
-        DivFullySpaced(
-            DivHStacked(
-                # Left side form - HTMX adjusted for silent submission
-                Div(
-                    DivFullySpaced(
-                        FormLabel(app_name, fr="prompt", cls="text-center justify-center text-2xl text-primary font-bold"),
-                        cls="rounded-lg bg-secondary shadow-lg border",
+        Div(
+            # Two-column layout
+            Div(
+                # Left side: Simple, direct form structure
+                Form(
+                    # Input and button in a row
+                    Div(
+                        Input(id="prompt", name="prompt", placeholder="What do you see?", 
+                            cls="flex-grow p-2 border rounded text-lg"),
+                        Button("Generate", id="generate", type="submit", 
+                            cls=ButtonT.primary + ' border text-xl rounded-lg shadow-lg ml-2'),
+                        cls="flex w-full"
                     ),
-                    Input(id="prompt", name="prompt", placeholder="What do you see?", 
-                            cls="w-full p-2 border rounded text-lg"),
-                    Button("Generate", id="generate", type="button", cls=ButtonT.primary + ' border text-xl rounded-lg shadow-lg',
-                            hx_post="/set_prompt",
-                            hx_swap="none", 
-                            hx_include="#prompt"),
-                    cls="flex items-end space-x-2 flex-grow justify-center align-center",
+                    hx_post="/set_prompt",
+                    hx_swap="none",
+                    cls="flex-grow flex flex-col",
                 ),
                 
-                # Right side button - HTMX adjusted for silent submission
-                Button("Refresh Latents", id="refresh", cls=ButtonT.secondary + ' border rounded-lg shadow-lg ml-4 mt-5',
-                        hx_post="/refresh_latents",
-                        hx_swap="none"),
+                # Right side button
+                Button("Refresh Scene", id="refresh", 
+                    cls=ButtonT.secondary + ' border rounded-lg shadow-lg ml-4',
+                    hx_post="/refresh_latents",
+                    hx_swap="none"),
                 
-                cls="w-full",
+                cls="flex items-end w-full"
             ),
-            cls="controls-wrapper",
+            cls="controls-wrapper"
         ),
         
         cls="main-container",
@@ -153,9 +196,27 @@ async def generate():
         if result["type"] == config.RESULT_FRAME:
             encoded_img = result['data']
             # Create image tag with base64 data
+            # data_uri = f"data:image/jpeg;base64,{encoded_img}"
+            # img = Img(src=data_uri, cls="image-fit")
             data_uri = f"data:image/jpeg;base64,{encoded_img}"
-            img = Img(src=data_uri, cls="image-fit")
-            yield sse_message(img)
+            # img_container = Div(
+            #     Img(src=data_uri, cls="image-fill"),
+            #     cls="image-background"
+            # )
+            img_container = Div(
+                # Background version with the same image as CSS background
+                Div(
+                    cls="image-background-fill",
+                    style=f"background-image: url('{data_uri}')",
+                ),
+                # Foreground version showing the complete image
+                Div(
+                    Img(src=data_uri, cls="image-fit"),
+                    cls="image-foreground",
+                )
+            )
+            yield sse_message(img_container)
+            # yield sse_message(img)
             
         elif result["type"] == config.RESULT_ERROR:
             # Display error message

@@ -7,7 +7,8 @@ from diffusers import (
     EulerDiscreteScheduler,
     HeunDiscreteScheduler,
     PNDMScheduler,
-    TCDScheduler
+    TCDScheduler,
+    LCMScheduler,
 )
 from dotenv import load_dotenv
 
@@ -35,7 +36,7 @@ SDXL_LIGHTNING_REPO_ID = "ByteDance/SDXL-Lightning"
 
 # --- Pipeline Configuration ---
 # Number of inference steps. MUST match the loaded UNet checkpoint (e.g., 2, 4, 8).
-N_STEPS = 4
+N_STEPS = 2
 FRAME_BUFFER_SIZE = 1 # for StreamBatchPipeline
 # Template for UNet checkpoint filenames. Use .format(n_steps=N_STEPS).
 LIGHTNING_CKPT_TEMPLATE = "sdxl_lightning_{n_steps}step_unet.safetensors"
@@ -75,6 +76,7 @@ SCHEDULERS = {
     "K_EULER": EulerDiscreteScheduler,
     "PNDM": PNDMScheduler,
     "TCD": TCDScheduler,
+    'LCM': LCMScheduler,
 }
 
 SCHEDULER_NAME = "TCD"
@@ -92,15 +94,19 @@ USE_QUANTIZATION = True
 SDXL_WIDTH = 1024
 SDXL_HEIGHT = 1024
 
-RESA_HEIGHT=512 # Default height for SD1.5 is 512
-RESA_WIDTH=512 # Default width for SD1.5 is 512
+LATENTS_WIDTH = 1408
+LATENTS_HEIGHT = 1024
+
+# swap to native webcam resolution
+RESA_HEIGHT=480 #512 # Default height for SD1.5 is 512
+RESA_WIDTH=640 #512 # Default width for SD1.5 is 512
 
 DISPLAY_WIDTH = 1920  # Width for web display
 DISPLAY_HEIGHT = 1080  # Height for web display
 
 # Negative prompt for SDXL
 # NEGATIVE_PROMPT = "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, low quality, distorted, frayed"
-NEGATIVE_PROMPT = "out of frame, lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature"
+NEGATIVE_PROMPT = "longbody, out of frame, facing away, no face, turned around, lowres, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, cropped, distorted, blurry"
 
 # Frame processing
 FRAME_BLEND = 0.75

@@ -1,15 +1,12 @@
+/* Global Page Setup */
 html, body { 
     height: 100vh; 
     margin: 0; 
     padding: 0; 
     overflow: hidden; 
 }
-.image-fit {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    display: block;
-}
+
+/* Main Container Structure */
 .main-container {
     display: flex;
     flex-direction: column;
@@ -18,19 +15,62 @@ html, body {
     box-sizing: border-box;
     padding: 0.5rem;
 }
+
+/* Image Container */
 .image-wrapper {
     flex: 1;
+    position: relative; /* Important for absolute positioning of children */
     overflow: hidden;
+    width: 100%;
+    margin-bottom: 0.5rem;
+    background-color: black; /* Changed from white to black for better blending */
+    border-radius: 0.5rem;
+}
+
+/* Background Blurred Image */
+.image-background-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-size: cover;
+    background-position: center;
+    filter: blur(30px); /* Slightly increased blur for better effect */
+    opacity: 0.7;
+    z-index: 1;
+}
+
+/* Foreground Complete Image */
+.image-foreground {
+    position: relative;
+    width: 100%;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 100%;
-    margin-bottom: 0.5rem;
-    background-color: white;
-    border-radius: 0.5rem;
+    z-index: 2;
 }
+
+/* Actual Image Styling */
+.image-fit {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+/* Controls Section */
+/* .controls-wrapper {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    background-color: white;
+} */
+ /* Controls Section */
 .controls-wrapper {
     padding: 1rem;
     border-radius: 0.5rem;
     background-color: white;
+    display: flex; /* Ensure flexbox layout */
+    width: 100%;
 }

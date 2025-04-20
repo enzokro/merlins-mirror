@@ -10,6 +10,7 @@ from diffusers import (
     ControlNetUnionModel,
     DiffusionPipeline,
     ControlNetModel,
+    AutoencoderTiny,
 )
 import cv2
 from transformers import DPTFeatureExtractor, DPTForDepthEstimation
@@ -43,6 +44,7 @@ IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 
 # set the pipeline class
 pipe_class = StableDiffusionXLControlNetPipeline
+from diffusers import StableDiffusionXLPipeline, DPMSolverSinglestepScheduler
 
 
 class ImagePipeline:
@@ -55,9 +57,6 @@ class ImagePipeline:
     def load(self, scheduler_name: str):
         """Loads all models, configures the pipeline, applies optimizations, and warms up."""
         print("--- Starting Pipeline Loading Process ---")
-
-        # Load SDXL Lightning UNet
-        print(f"Loading SDXL Lightning {config.N_STEPS}-Step UNet...")
 
         # # Load ControlNet Models
         self.depth_model = MidasDetector.from_pretrained("lllyasviel/Annotators").to(config.DEVICE)
@@ -83,37 +82,45 @@ class ImagePipeline:
             controlnet_model_depth,
         ]
 
+       # Load the tiny VAE
+        vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl").to(config.DEVICE, dtype=config.DTYPE)
+
 
         # Create the Full Pipeline with Injected UNet, ControlNet, and VAE
         print("Creating the pipeline...")
         pipeline = pipe_class.from_pretrained(
-            'Lykon/dreamshaper-xl-1-0',
+            # 'Lykon/dreamshaper-xl-1-0',
             # 'Lykon/dreamshaper-xl-v2-turbo',
             # 'Lykon/dreamshaper-xl-lightning',
+            # 'fluently/Fluently-XL-Final',
+            "sd-community/sdxl-flash",
             controlnet=controlnet_model,   # Inject the ControlNet
             torch_dtype=config.DTYPE,
+            vae=vae,
             use_safetensors=True,
-            variant="fp16"              
+            # variant="fp16"              
         ).to(config.DEVICE)
 
         # Configure the Scheduler (CRITICAL for SDXL Lightning)
-        scheduler_name = "DDIM"
+        # scheduler_name = "DDIM"
+        scheduler_name = "TCD"
         print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
-        scheduler_name = "DPMSolverMultistep"
+        # scheduler_name = "DPMSolverMultistep"
         pipeline.scheduler = config.SCHEDULERS[scheduler_name].from_config(
+        # pipeline.scheduler = DPMSolverSinglestepScheduler.from_config(
             pipeline.scheduler.config,
             # num_train_timesteps=1000,
 
-            # For DDIM
-            timestep_spacing="trailing", 
-            clip_sample=False, 
-            set_alpha_to_one=False,
+            # # For DDIM
+            # timestep_spacing="trailing", 
+            # clip_sample=False, 
+            # set_alpha_to_one=False,
 
             # # For TCD
-            # beta_start=0.00085,
-            # beta_end=0.012,
-            # beta_schedule="scaled_linear",
-            # timestep_spacing="trailing",
+            beta_start=0.00085,
+            beta_end=0.012,
+            beta_schedule="scaled_linear",
+            timestep_spacing="trailing",
             
             # # For DPMSolverMultistep
             # use_karras_sigmas=True, 
@@ -138,8 +145,8 @@ class ImagePipeline:
             )
 
         # load PCM weights
-        # checkpoint = f"pcm_sdxl_smallcfg_{config.N_STEPS}step_converted.safetensors"
-        checkpoint = f"pcm_sdxl_normalcfg_{config.N_STEPS}step_converted.safetensors"
+        checkpoint = f"pcm_sdxl_smallcfg_{config.N_STEPS}step_converted.safetensors"
+        # checkpoint = f"pcm_sdxl_normalcfg_{config.N_STEPS}step_converted.safetensors"
         mode = "sdxl"
         pipeline.load_lora_weights(
             "wangfuyun/PCM_Weights", weight_name=checkpoint, subfolder=mode,
@@ -174,9 +181,9 @@ class ImagePipeline:
         # Apply speedups and warmup the model
         self.pipeline.set_progress_bar_config(disable=True)
 
-        # Speedup optimizations
-        # # Fuse the QKV projections in the UNet.
-        self.pipeline.fuse_qkv_projections()
+        # # Speedup optimizations
+        # # # Fuse the QKV projections in the UNet.
+        # self.pipeline.fuse_qkv_projections()
 
         # ## Move the UNet and ControlNet to channels_last
         if config.DEVICE not in ("mps", "cpu"):
@@ -243,7 +250,7 @@ class ImagePipeline:
         # size=(config.SDXL_WIDTH, config.SDXL_HEIGHT)
 
         # Process control images based on active ControlNets
-        camera_frame.save(f'{IMAGE_DEBUG_PATH}/image_orig_shape_{camera_frame.size}.jpg')
+        # camera_frame.save(f'{IMAGE_DEBUG_PATH}/image_orig_shape_{camera_frame.size}.jpg')
         camera_frame = camera_frame.resize((config.RESA_WIDTH, config.RESA_HEIGHT))
 
         # print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
@@ -263,15 +270,15 @@ class ImagePipeline:
         ]
 
         # save the images
-        pose_image.save(f'{IMAGE_DEBUG_PATH}/image_depth_shape_{pose_image.size}.jpg')
-        depth_image.save(f'{IMAGE_DEBUG_PATH}/image_pose_shape_{depth_image.size}.jpg')
+        # pose_image.save(f'{IMAGE_DEBUG_PATH}/image_depth_shape_{pose_image.size}.jpg')
+        # depth_image.save(f'{IMAGE_DEBUG_PATH}/image_pose_shape_{depth_image.size}.jpg')
 
         ## manual controlnet params
         cn_scale = [1.0, 1.0]
         control_start = [0., 0.]
         control_end = [1.0, 1.0]
 
-        guidance_scale = 2.5
+        guidance_scale = 1.0
 
         try:
             with torch.no_grad():

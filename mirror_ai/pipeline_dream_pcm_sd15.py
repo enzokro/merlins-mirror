@@ -7,6 +7,7 @@ from diffusers import (
     StableDiffusionXLControlNetImg2ImgPipeline,
     StableDiffusionControlNetPipeline,
     StableDiffusionControlNetImg2ImgPipeline,
+    DPMSolverSinglestepScheduler,
     UNet2DConditionModel,
     AutoencoderKL,
     ControlNetUnionModel,
@@ -25,11 +26,11 @@ from safetensors.torch import load_file
 from torchao.quantization import swap_conv2d_1x1_to_linear
 from dotenv import load_dotenv
 import os
-
+import numpy as np
 
 from . import config
 from .utils import dynamic_quant_filter_fn, conv_filter_fn
-from .stream_batch_pipeline import StreamBatchPipeline
+
 
 # small torch speedups for compilation
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -47,13 +48,10 @@ IMAGE_DEBUG_PATH = os.getenv("IMAGE_DEBUG_PATH")
 
 # set the pipeline class
 pipe_class = StableDiffusionControlNetPipeline
-pipe_class_img2img = StableDiffusionControlNetImg2ImgPipeline
-
-# pipe_class = StreamBatchPipeline
 
 
 class ImagePipeline:
-    """Wraps the SDXL Lightning and ControlNet++ pipeline setup."""
+    """Wraps the SD1.5 ControlNet++ pipeline setup."""
     def __init__(self):
         self.pipeline = None
         self.generator = torch.Generator(device=torch.device(config.DEVICE)).manual_seed(config.SEED)
@@ -62,8 +60,6 @@ class ImagePipeline:
     def load(self, scheduler_name: str):
         """Loads all models, configures the pipeline, applies optimizations, and warms up."""
         print("--- Starting Pipeline Loading Process ---")
-
-        # Load SDXL Lightning UNet
 
         # # Load ControlNet Models
         self.depth_model = MidasDetector.from_pretrained("lllyasviel/Annotators").to(config.DEVICE)
@@ -92,59 +88,44 @@ class ImagePipeline:
         # Load the tiny VAE
         vae = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(config.DEVICE, dtype=config.DTYPE)
 
-
         # Create the Full Pipeline with Injected UNet, ControlNet, and VAE
         print("Creating the pipeline...")
-        # pipeline = pipe_class_img2img.from_pretrained(
-        pipeline_base = pipe_class.from_pretrained(
-            'lykon/dreamshaper-8',
+        pipeline = pipe_class.from_pretrained(
+            # 'lykon/dreamshaper-8',
+            'fluently/Fluently-v4', # this one is looking good
+            # "fluently/Fluently-v4-LCM",
             controlnet=controlnet_model,   # Inject the ControlNet
             vae=vae, # Inject the VAE
             safety_checker=None,
             torch_dtype=config.DTYPE,
+
+            # works with lykon, not the others
             use_safetensors=True,
             variant="fp16",
 
-            # for StreamBatchPipeline
-            num_inference_steps=config.N_STEPS,
-            use_denoising_batch=True,
-            frame_buffer_size=config.FRAME_BUFFER_SIZE,
-
         ).to(config.DEVICE)
 
-        # Set StreamBatch specific parameters AFTER initialization
-        # Check if the loaded pipeline is indeed our StreamBatchPipeline
-        if isinstance(pipeline_base, StreamBatchPipeline):
-            print("Setting StreamBatch specific parameters...")
-            pipeline_base.set_stream_batch_options(
-                num_inference_steps=config.N_STEPS,
-                frame_buffer_size=config.FRAME_BUFFER_SIZE,
-                use_denoising_batch=True # Set your desired value
-            )
-            print("StreamBatch parameters set.")
-        else:
-            print("Warning: Loaded pipeline is not StreamBatchPipeline, skipping custom parameter setup.")
-
-        pipeline = pipeline_base
 
         # Configure the Scheduler (CRITICAL for our models)
-        scheduler_name = "DDIM"
-        # scheduler_name = "TCD"
+        # scheduler_name = "DDIM"
+        scheduler_name = "TCD"
         print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
         pipeline.scheduler = config.SCHEDULERS[scheduler_name].from_config(
             pipeline.scheduler.config,
             num_train_timesteps=1000,
 
-            # For DDIM
-            timestep_spacing="trailing", 
-            clip_sample=False, 
-            set_alpha_to_one=False,
+            # # # For DDIM
+            # timestep_spacing="trailing", 
+            # clip_sample=False, 
+            # set_alpha_to_one=False,
 
             # # # For TCD
-            # beta_start=0.00085,
-            # beta_end=0.012,
-            # beta_schedule="scaled_linear",
-            # timestep_spacing="trailing",
+            beta_start=0.00085,
+            beta_end=0.012,
+            beta_schedule="scaled_linear",
+            timestep_spacing="trailing",
+            clip_sample=False, 
+            set_alpha_to_one=False,
             
             # For DPMSolverMultistep
             # use_karras_sigmas=True, 
@@ -156,21 +137,22 @@ class ImagePipeline:
         )
         print("Scheduler Configured.")
 
-        # # Set up Res-Adapter
-        # print("Loading Res-Adapter...")
-        # resadapter_model_name = "resadapter_v2_sd1.5"
-        # pipeline.load_lora_weights(
-        #     hf_hub_download(
-        #         repo_id="jiaxiangc/res-adapter", 
-        #         subfolder=resadapter_model_name, 
-        #         filename="pytorch_lora_weights.safetensors",
-        #     ), 
-        #     adapter_name="res_adapter",
-        #     )
+        # Set up Res-Adapter
+        print("Loading Res-Adapter...")
+        resadapter_model_name = "resadapter_v2_sd1.5"
+        pipeline.load_lora_weights(
+            hf_hub_download(
+                repo_id="jiaxiangc/res-adapter", 
+                subfolder=resadapter_model_name, 
+                filename="pytorch_lora_weights.safetensors",
+            ), 
+            adapter_name="res_adapter",
+            )
 
         # load PCM weights
-        # checkpoint = f"pcm_sd15_smallcfg_{config.N_STEPS}step_converted.safetensors"
-        checkpoint = f"pcm_sd15_normalcfg_{config.N_STEPS}step_converted.safetensors"
+        checkpoint = f"pcm_sd15_smallcfg_{config.N_STEPS}step_converted.safetensors"
+        # checkpoint = f"pcm_sd15_normalcfg_{config.N_STEPS}step_converted.safetensors"
+        # checkpoint = "pcm_sd15_lcmlike_lora_converted.safetensors"
         mode = "sd15"
         pipeline.load_lora_weights(
             "wangfuyun/PCM_Weights", weight_name=checkpoint, subfolder=mode,
@@ -180,21 +162,18 @@ class ImagePipeline:
         # Set the adapters and weights
         pipeline.set_adapters(
             [
-                # "res_adapter", 
+                "res_adapter", 
                 "pcm",
             ], 
             adapter_weights=
             [
-                # 0.7, 
+                1.0, 
                 1.0,
             ])
-        # pipeline.fuse_lora(adapter_names=["res_adapter", "pcm"], lora_scale=1.0)
+        pipeline.fuse_lora(adapter_names=["res_adapter", "pcm"], lora_scale=1.0)
 
         # set the pipeline
         self.pipeline = pipeline
-        self.pipeline.unet.to(config.DTYPE)
-        self.pipeline.vae.to(config.DTYPE)
-        self.pipeline.controlnet.to(config.DTYPE)
         self.pipeline.to(config.DEVICE, dtype=config.DTYPE)
 
         # Initialize latents
@@ -214,37 +193,52 @@ class ImagePipeline:
         # # Fuse the QKV projections in the UNet.
         # self.pipeline.fuse_qkv_projections()
 
-        # NOTE: removing these for re-compilation
+        # # NOTE: removing these for re-compilation
         # # ## Move the UNet and ControlNet to channels_last
         # if config.DEVICE not in ("mps", "cpu"):
         #     self.pipeline.unet.to(memory_format=torch.channels_last)
         #     self.pipeline.controlnet.to(memory_format=torch.channels_last)
 
-        # # ## TODO: figure out dynamic quantization
-        # swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
-        # swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
+        # ## TODO: figure out dynamic quantization
+        swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
+        swap_conv2d_1x1_to_linear(self.pipeline.vae, conv_filter_fn)
 
-        # # Compile the UNet, VAE, and ControlNet
+        # Compile the UNet, VAE, and ControlNet
         # backend="tensorrt"
         # print(f"Compiling the models with backend: {backend}")
         # self.pipeline.unet = torch.compile(self.pipeline.unet, backend=backend, mode="max-autotune", fullgraph=True)
         # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, backend=backend, mode="max-autotune", fullgraph=True)
+        # self.pipeline.controlnet = torch.compile(self.pipeline.controlnet, backend=backend, mode="max-autotune", fullgraph=True)
 
         # warmup the model
-        # print("Warming up the model...")
-        # img = randn_tensor((3, 512, 512), generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
-        # control_img = randn_tensor((1, 512, 512), generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
-        # # self.pipeline(
-        # #     prompt="TEST",
-        # #     ## regular pipeline
-        # #     # image=[img, img],
-        # #     ## img2img pipeline
-        # #     image=[img],
-        # #     control_image=[control_img, control_img],
-        # #     num_inference_steps=1,
-        # #     width=config.RESA_WIDTH,
-        # #     height=config.RESA_HEIGHT,
-        # # )
+        print("Warming up the model...")
+        img = randn_tensor((1, 3, 512, 512), generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
+        control_img = randn_tensor((1, 512, 512), generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
+        control_image = [
+            img,
+            img,
+        ]
+        self.pipeline(
+            prompt="TEST",
+            negative_prompt=config.NEGATIVE_PROMPT,
+
+            num_inference_steps=1,
+
+            # set the guidance scale
+            guidance_scale=1.5,
+
+            ## TODO: fix
+            generator=self.generator,
+            latents=self.latents, 
+
+            # for regular controlnet pipeline
+            image=control_image,
+
+            # output image setup
+            width=config.RESA_WIDTH, #config.SDXL_WIDTH,
+            height=config.RESA_HEIGHT, #SDXL_HEIGHT,
+            output_type="pil",
+        )
 
         print("Pipeline loaded.") 
         return self.pipeline
@@ -281,7 +275,7 @@ class ImagePipeline:
         steps = num_inference_steps if num_inference_steps is not None else config.N_STEPS
 
         # Process control images based on active ControlNets
-        camera_frame.save(f'{IMAGE_DEBUG_PATH}/image_orig_shape_{camera_frame.size}.jpg')
+        # camera_frame.save(f'{IMAGE_DEBUG_PATH}/image_orig_shape_{camera_frame.size}.jpg')
         camera_frame = camera_frame.resize((config.RESA_WIDTH, config.RESA_HEIGHT))
 
         # print(f"Running Inference: steps={steps}, guidance={g_scale}, cn_scale={cn_scale}...")
@@ -299,8 +293,8 @@ class ImagePipeline:
         ]
 
         # save the images
-        pose_image.save(f'{IMAGE_DEBUG_PATH}/image_depth_shape_{pose_image.size}.jpg')
-        depth_image.save(f'{IMAGE_DEBUG_PATH}/image_pose_shape_{depth_image.size}.jpg')
+        # pose_image.save(f'{IMAGE_DEBUG_PATH}/image_depth_shape_{pose_image.size}.jpg')
+        # depth_image.save(f'{IMAGE_DEBUG_PATH}/image_pose_shape_{depth_image.size}.jpg')
 
         ## manual controlnet params
         cn_scale = [
@@ -315,7 +309,7 @@ class ImagePipeline:
             1.0, 
             1.0,
         ]
-        guidance_scale = 2.5
+        guidance_scale = 1.1
         strength=0.8
 
         try:
@@ -336,12 +330,6 @@ class ImagePipeline:
 
                     # for regular controlnet pipeline
                     image=control_image,
-
-                    # # for img2img pipeline
-                    # image=camera_frame,
-                    # control_image=control_image,
-                    # strength=strength,
-
 
                     # controlnet params
                     controlnet_conditioning_scale=cn_scale,

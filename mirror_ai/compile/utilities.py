@@ -581,15 +581,17 @@ def export_onnx(
 
     model.eval() # Set to eval mode *after* potential modifications
 
-    # --- START: Conditional Wrapper Instantiation ---
+    # --- Reinstate Conditional Wrapper Instantiation for UNet --- #
     export_model = model # Default to the original model
     if isinstance(model_data, UNet):
-        print("  Detected UNet model type. Instantiating TraceableUNetWrapper.")
-        all_input_names_for_wrapper = model_data.get_input_names()
-        if not all_input_names_for_wrapper or not isinstance(all_input_names_for_wrapper, list):
-            raise ValueError("model_data.get_input_names() did not return a valid list for UNet wrapper.")
+        print("  Detected UNet model type. Instantiating corrected TraceableUNetWrapper (12+1 residuals).")
+        all_input_names_for_wrapper = model_data.get_input_names() # Should be 16 names
+        if not all_input_names_for_wrapper or not isinstance(all_input_names_for_wrapper, list) or len(all_input_names_for_wrapper) != 16:
+            raise ValueError(
+                f"model_data.get_input_names() did not return a valid list of 16 names for UNet wrapper. Got: {all_input_names_for_wrapper}"
+            )
         try:
-            # Pass the original (potentially dtype/device converted) model to the wrapper
+            # Pass the original (potentially dtype/device converted) model to the corrected wrapper
             export_model = TraceableUNetWrapper(model, all_input_names_for_wrapper)
             export_model.to(device=export_device, dtype=export_dtype) # Ensure wrapper is on correct device/dtype
             export_model.eval()
@@ -597,16 +599,19 @@ def export_onnx(
         except Exception as wrapper_e:
             print(f"ERROR: Failed to instantiate or prepare TraceableUNetWrapper: {wrapper_e}")
             raise
-    # --- END: Conditional Wrapper Instantiation ---
+    else:
+        print(f"  Model type {type(model)} is not UNet, exporting directly.")
+    # --- End Conditional Wrapper Instantiation ---
 
     # --- Prepare Inputs for Tracing --- #
     with torch.inference_mode():
         # Get the canonical list of input names for the ONNX graph
-        onnx_input_names = model_data.get_input_names()
+        onnx_input_names = model_data.get_input_names() # Should be 16 for UNet
         if not isinstance(onnx_input_names, list):
             raise TypeError(f"{type(model_data)}.get_input_names() must return a list.")
 
         # Get all sample inputs from the model_data helper
+        # This should now return the correct 12+1 residuals for UNet
         sample_inputs_dict = model_data.get_sample_input(opt_batch_size, opt_image_height, opt_image_width)
         if not isinstance(sample_inputs_dict, dict):
             raise TypeError(f"{type(model_data)}.get_sample_input() must return a dictionary.")
@@ -616,30 +621,24 @@ def export_onnx(
         print(f"Debug: Constructing ordered input tuple based on onnx_input_names: {onnx_input_names}")
         for name in onnx_input_names:
             if name not in sample_inputs_dict:
-                if name == '_down_block_residuals_tuple':
-                     print(f"Debug: Skipping internal helper key '{name}' during tuple construction.")
-                     continue
+                # This check should pass now if models.py is correct
                 raise ValueError(f"Input name '{name}' from get_input_names() not found in sample_inputs_dict keys: {list(sample_inputs_dict.keys())}")
 
             tensor = sample_inputs_dict[name]
 
             # Ensure correct dtype and device for export inputs
-            expected_input_dtype = export_dtype # Default to float32
+            expected_input_dtype = export_dtype
             if name == "input_ids": # CLIP specific
                  expected_input_dtype = torch.int32
             elif name == "timestep": # UNet specific
-                 # Timestep needs to be float32 for embedding layer usually
                  expected_input_dtype = torch.float32
 
             if tensor.dtype != expected_input_dtype:
-                 # print(f"  Converting input '{name}' from {tensor.dtype} to {expected_input_dtype}")
                  tensor = tensor.to(expected_input_dtype)
             if tensor.device != export_device:
-                 # print(f"  Moving input '{name}' from {tensor.device} to {export_device}")
                  tensor = tensor.to(export_device)
 
             onnx_export_args_list.append(tensor)
-            # print(f"  Added input '{name}' (Shape: {tensor.shape}, Dtype: {tensor.dtype}) to export tuple.")
 
         # Convert the final list to the required tuple format
         onnx_export_args_tuple = tuple(onnx_export_args_list)
@@ -648,15 +647,16 @@ def export_onnx(
         onnx_output_names = model_data.get_output_names()
         onnx_dynamic_axes = model_data.get_dynamic_axes()
 
-        # Debug: Print final arguments being passed to torch.onnx.export (Reduced verbosity)
+        # Debug: Print final arguments being passed to torch.onnx.export
         print("\n--- Debug: Final arguments for torch.onnx.export ---")
-        print(f"  Exporting Model Type: {type(export_model)}") # Print type of model being exported
+        print(f"  Exporting Model Type: {type(export_model)}") # Should show Wrapper for UNet
         if hasattr(export_model, 'dtype'):
             print(f"    Export Model Dtype: {export_model.dtype}")
+        # Check wrapped model if applicable
         if isinstance(export_model, TraceableUNetWrapper) and hasattr(export_model, 'original_unet'):
              print(f"    Wrapped UNet Dtype: {export_model.original_unet.dtype}")
-        print(f"  Args Tuple len={len(onnx_export_args_tuple)} (Input Dtypes: {[arg.dtype for arg in onnx_export_args_tuple]}) ")
-        print(f"  Input Names (ONNX Graph): {onnx_input_names}")
+        print(f"  Args Tuple len={len(onnx_export_args_tuple)} (Input Dtypes: {[arg.dtype for arg in onnx_export_args_tuple]}) ") # Should be 16 args
+        print(f"  Input Names (ONNX Graph): {onnx_input_names}") # Should be 16 names
         print(f"  Output Names (ONNX Graph): {onnx_output_names}")
         print("-------------------------------------------------")
 
@@ -669,10 +669,9 @@ def export_onnx(
         # --- Export --- #
         try:
             print("Debug: Attempting torch.onnx.export...")
-            # Pass the *single* tuple containing all ordered inputs
             torch.onnx.export(
-                export_model, # Use the potentially wrapped model
-                onnx_export_args_tuple, # The single tuple with all inputs
+                export_model, # Use the *wrapper* for UNet, original model otherwise
+                onnx_export_args_tuple, # The single tuple with all 16 inputs for UNet
                 tmp_onnx_path, # Export to temporary path first
                 export_params=True,
                 opset_version=onnx_opset,
@@ -683,7 +682,7 @@ def export_onnx(
             )
             print(f"Debug: torch.onnx.export successful to temporary path: {tmp_onnx_path}")
 
-            # --- Conditional Optimization --- #
+            # --- Conditional Optimization (Applies to non-UNet models) --- #
             if not isinstance(model_data, UNet):
                 print(f"Optimizing ONNX model ({type(model_data)}): {tmp_onnx_path} -> {onnx_path}")
                 try:
@@ -694,16 +693,21 @@ def export_onnx(
                 except Exception as e:
                      print(f"Error loading temporary ONNX {tmp_onnx_path}: {e}")
                      raise
+                # Use the model_data's optimize method (e.g., for VAE, CLIP)
                 onnx_opt_graph = model_data.optimize(onnx_graph)
                 os.makedirs(os.path.dirname(onnx_path), exist_ok=True)
+                # Save the *optimized* graph to the final onnx_path
                 onnx.save_model(onnx_opt_graph, onnx_path, save_as_external_data=True, all_tensors_to_one_file=True, location=f"{os.path.basename(onnx_path)}.data", size_threshold=1024)
                 print(f"ONNX optimization and final save complete: {onnx_path}")
                 del onnx_graph, onnx_opt_graph
             else:
-                print(f"Skipping ONNX optimization for UNet. Saving unoptimized graph directly to: {onnx_path}")
+                # --- UNet: Skip Optimization, Copy Directly --- #
+                print(f"Skipping ONNX optimization for UNet. Copying wrapped+exported graph directly to: {onnx_path}")
                 import shutil
                 os.makedirs(os.path.dirname(onnx_path), exist_ok=True)
+                # Copy the unoptimized graph from temp path to final path
                 shutil.copyfile(tmp_onnx_path, onnx_path)
+                # Copy external data file if it exists
                 tmp_data_path = tmp_onnx_path + ".data"
                 final_data_path = onnx_path + ".data"
                 if os.path.exists(tmp_data_path):
@@ -725,19 +729,21 @@ def export_onnx(
              raise
 
     # Move model back to original device and dtype *if* it was moved/changed
-    # Check the final dtype of the potentially inner model for restoration logic
-    final_exported_model = export_model.original_unet if isinstance(export_model, TraceableUNetWrapper) else export_model
-    final_export_unet_dtype = final_exported_model.dtype if hasattr(final_exported_model, 'dtype') else None
+    # Check the original model's final dtype for restoration logic
+    final_exported_model_dtype = export_model.dtype if hasattr(export_model, 'dtype') else None
+    # Handle wrapper case for dtype check
+    if isinstance(export_model, TraceableUNetWrapper):
+        final_exported_model_dtype = export_model.original_unet.dtype if hasattr(export_model.original_unet, 'dtype') else None
 
-    if original_device != export_device or (original_model_dtype is not None and final_export_unet_dtype != original_model_dtype):
+
+    if original_device != export_device or (original_model_dtype is not None and final_exported_model_dtype != original_model_dtype):
         try:
-            # Move the original model back (not the wrapper)
+            # Restore the original model passed in, not necessarily export_model
             model.to(original_device)
             if original_model_dtype is not None and model.dtype != original_model_dtype:
                  model.to(original_model_dtype)
 
             # Verify final state
-            # final_dtype = model.original_unet.dtype if isinstance(model, UNet) and hasattr(model, 'original_unet') else model.dtype
             final_dtype = model.dtype if hasattr(model, 'dtype') else 'N/A'
             final_device = next(iter(model.parameters()), torch.tensor(0)).device # Safer device check
             print(f"  Restored original model to device {final_device} (Restored dtype: {final_dtype}).")
@@ -745,11 +751,12 @@ def export_onnx(
         except Exception as e:
             print(f"Warning: Failed to move model back to {original_device} or restore dtype: {e}")
 
-    del model_data
+    # Clean up references
+    # del model_data # Keep model_data if needed elsewhere in the calling scope
     del sample_inputs_dict
     del onnx_export_args_list
     del onnx_export_args_tuple
-    # del model # Be cautious deleting 'model' if it was passed in
+    # del model # Be cautious deleting 'model' if it was passed in from outside
 
     gc.collect()
     if torch.cuda.is_available():
