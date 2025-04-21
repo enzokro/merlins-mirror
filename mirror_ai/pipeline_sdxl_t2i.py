@@ -8,7 +8,7 @@ from diffusers import (
 )
 import PIL
 from PIL import Image
-from controlnet_aux import MidasDetector, OpenposeDetector, ZoeDetector
+from controlnet_aux import MidasDetector, OpenposeDetector, OpenposeDetector
 from huggingface_hub import hf_hub_download
 from diffusers.utils.torch_utils import randn_tensor
 from safetensors.torch import load_file
@@ -32,7 +32,7 @@ torch._inductor.config.coordinate_descent_check_all_directions = True
 # torch._inductor.config.use_mixed_mm = True
 
 import torch
-from diffusers import StableDiffusionXLAdapterPipeline, MultiAdapter, T2IAdapter
+from diffusers import StableDiffusionAdapterPipeline, MultiAdapter, T2IAdapter
 
 
 load_dotenv()
@@ -44,7 +44,7 @@ ADAPTER_REPO_IDS = {
     # "sketch": "TencentARC/t2i-adapter-sketch-sdxl-1.0",
     # "lineart": "TencentARC/t2i-adapter-lineart-sdxl-1.0",
     "depth-midas": "TencentARC/t2i-adapter-depth-midas-sdxl-1.0",
-    "depth-zoe": "TencentARC/t2i-adapter-depth-zoe-sdxl-1.0",
+    # "depth-zoe": "TencentARC/t2i-adapter-depth-zoe-sdxl-1.0",
     "openpose": "TencentARC/t2i-adapter-openpose-sdxl-1.0",
     # "recolor": "TencentARC/t2i-adapter-recolor-sdxl-1.0",
 }
@@ -72,18 +72,6 @@ class MidasPreprocessor(Preprocessor):
     def __call__(self, image: PIL.Image.Image) -> PIL.Image.Image:
         return self.model(image, detect_resolution=512, image_resolution=1024)
 
-class ZoePreprocessor(Preprocessor):
-    def __init__(self):
-        self.model = ZoeDetector.from_pretrained(
-            "valhalla/t2iadapter-aux-models", filename="zoed_nk.pth", model_type="zoedepth_nk"
-        )
-
-    def to(self, device: torch.device | str) -> Preprocessor:
-        self.model.to(device)
-        return self
-
-    def __call__(self, image: PIL.Image.Image) -> PIL.Image.Image:
-        return self.model(image, gamma_corrected=True, image_resolution=1024)
 
 class OpenposePreprocessor(Preprocessor):
     def __init__(self):
@@ -106,7 +94,7 @@ preprocessors_gpu: dict[str, Preprocessor] = {
     # "sketch": PidiNetPreprocessor().to(device),
     # "lineart": LineartPreprocessor().to(device),
     "depth-midas": MidasPreprocessor().to(device),
-    "depth-zoe": ZoePreprocessor().to(device),
+    # "depth-zoe": ZoePreprocessor().to(device),
     "openpose": OpenposePreprocessor().to(device),
     # "recolor": RecolorPreprocessor().to(device),
 }
@@ -123,7 +111,7 @@ adapters = MultiAdapter(
 adapters = adapters.to(torch.float16)
 
 # set the pipeline class
-pipe_class = StableDiffusionXLAdapterPipeline
+pipe_class = StableDiffusionAdapterPipeline
 
 
 class ImagePipeline:
@@ -155,17 +143,16 @@ class ImagePipeline:
             # vae=vae, # inject the tiny VAE
 
             # pass in the adapters
-            adapter=adapters,
+            adapters=adapters,
 
             torch_dtype=config.DTYPE,
             use_safetensors=True,
             variant="fp16"              
-        ).to(config.DEVICE, dtype=config.DTYPE)
+        ).to(config.DEVICE)
 
         # Configure the Scheduler (CRITICAL for SDXL Lightning)
-        # scheduler_name = "DDIM"
-        # scheduler_name = "DPMSolverMultistep"
-        scheduler_name = "K_EULER"
+        scheduler_name = "DDIM"
+        scheduler_name = "DPMSolverMultistep"
 
         print(f"Configuring Scheduler ({scheduler_name}, spacing='{config.SCHEDULER_TIMESTEP_SPACING}')...")
         pipeline.scheduler = config.SCHEDULERS[scheduler_name].from_config(
@@ -245,6 +232,7 @@ class ImagePipeline:
         # ## Move the UNet and ControlNet to channels_last
         if config.DEVICE not in ("mps", "cpu"):
             self.pipeline.unet.to(memory_format=torch.channels_last)
+            self.pipeline.controlnet.to(memory_format=torch.channels_last)
 
         # ## TODO: figure out dynamic quantization
         swap_conv2d_1x1_to_linear(self.pipeline.unet, conv_filter_fn)
@@ -255,16 +243,20 @@ class ImagePipeline:
         # print(f"Compiling the models with backend: {backend}")
         # self.pipeline.unet = torch.compile(self.pipeline.unet, backend=backend, mode="max-autotune", fullgraph=True)
         # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, backend=backend, mode="max-autotune", fullgraph=True)
+        # # Attempt to compile the ControlNet
+        # self.pipeline.controlnet[0] = torch.compile(self.pipeline.controlnet[0], backend=backend, mode="max-autotune", fullgraph=True)
+        # self.pipeline.controlnet[1] = torch.compile(self.pipeline.controlnet[1], backend=backend, mode="max-autotune", fullgraph=True)
+
         # warmup the model
-        # print("Warming up the model...")
-        # img = randn_tensor((1, 3, 512, 512), generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
-        # self.pipeline(
-        #     prompt="TEST",
-        #     image=[img, img],
-        #     num_inference_steps=1,
-        #     width=config.RESA_WIDTH,
-        #     height=config.RESA_HEIGHT,
-        # )
+        print("Warming up the model...")
+        img = randn_tensor((1, 3, 512, 512), generator=self.generator, device=torch.device(config.DEVICE), dtype=config.DTYPE)
+        self.pipeline(
+            prompt="TEST",
+            image=[img, img],
+            num_inference_steps=1,
+            width=config.RESA_WIDTH,
+            height=config.RESA_HEIGHT,
+        )
 
         # Initialize latents
         batch_size = 1
@@ -277,7 +269,6 @@ class ImagePipeline:
         self.refresh_latents()
 
         print("Pipeline loaded.") 
-        return self.pipeline
 
 
     def generate(
@@ -331,7 +322,7 @@ class ImagePipeline:
 
         ## manual controlnet params
         adapter_conditioning_scale = [1.0, 1.0]
-        adapter_conditioning_factor = 1.0
+        adapter_conditioning_factor = [1.0, 1.0]
 
         guidance_scale = 2.5
 
