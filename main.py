@@ -36,8 +36,109 @@ favicon_headers = Favicon(light_icon="/static/logo.png", dark_icon="/static/logo
 full_screen_style = Link(rel="stylesheet", href="/static/styles.css")
 # sse to emit transformed images
 sse_script = Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js")
+
+canvas_script = Script("""
+    // Canvas rendering and SSE handling
+    document.addEventListener('DOMContentLoaded', function() {
+        // Get canvas elements
+        const mainCanvas = document.getElementById('main-canvas');
+        const bgCanvas = document.getElementById('bg-canvas');
+        const initialLogo = document.getElementById('initial-logo');
+        
+        // Get rendering contexts
+        const mainCtx = mainCanvas.getContext('2d');
+        const bgCtx = bgCanvas.getContext('2d');
+        
+        // Set initial dimensions based on container
+        function updateCanvasDimensions() {
+            const container = document.getElementById('canvas-container');
+            if (container) {
+                // Set dimensions based on container size for responsive behavior
+                const width = container.clientWidth;
+                const height = container.clientHeight;
+                
+                mainCanvas.width = width;
+                mainCanvas.height = height;
+                bgCanvas.width = width;
+                bgCanvas.height = height;
+            }
+        }
+        
+        // Initial size update
+        updateCanvasDimensions();
+        
+        // Update on window resize for responsiveness
+        window.addEventListener('resize', updateCanvasDimensions);
+        
+        // Function to draw image with proper aspect ratio
+        function drawImageProperly(img, canvas, ctx, expand = 0) {
+            const imgRatio = img.width / img.height;
+            const canvasRatio = canvas.width / canvas.height;
+            
+            let drawWidth, drawHeight, offsetX = 0, offsetY = 0;
+            
+            // Determine dimensions to maintain aspect ratio
+            if (imgRatio > canvasRatio) {
+                // Image is wider than canvas (relative to height)
+                drawHeight = canvas.height + expand * 2;
+                drawWidth = drawHeight * imgRatio;
+                offsetX = (canvas.width - drawWidth) / 2;
+                offsetY = -expand;
+            } else {
+                // Image is taller than canvas (relative to width)
+                drawWidth = canvas.width + expand * 2;
+                drawHeight = drawWidth / imgRatio;
+                offsetX = -expand;
+                offsetY = (canvas.height - drawHeight) / 2;
+            }
+            
+            // Draw the image centered and scaled properly
+            ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+        }
+        
+        // Listen for SSE events containing image data
+        document.body.addEventListener('sse:message', function(event) {
+            // Get base64 image data from the event
+            const imageData = event.detail.data;
+            
+            // Hide the initial logo once we start receiving images
+            if (initialLogo && initialLogo.style.display !== 'none') {
+                initialLogo.style.display = 'none';
+            }
+            
+            // Create image object to load the data
+            const img = new Image();
+            
+            img.onload = function() {
+                // Use requestAnimationFrame for smooth rendering
+                requestAnimationFrame(() => {
+                    // Clear previous canvas content
+                    mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+                    bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+                    
+                    // Draw main image
+                    drawImageProperly(img, mainCanvas, mainCtx);
+                    
+                    // Draw background with blur effect
+                    bgCtx.filter = 'blur(10px)';
+                    // Draw slightly larger to avoid blur edges
+                    drawImageProperly(img, bgCanvas, bgCtx, 10);
+                    bgCtx.filter = 'none';
+                });
+            };
+            
+            img.onerror = function(err) {
+                console.error('Error loading image:', err);
+            };
+            
+            // Set image source from base64 data
+            img.src = 'data:image/jpeg;base64,' + imageData;
+        });
+    });
+""")
+
 # setup the app headers
-hdrs = [theme, favicon_headers, full_screen_style, sse_script]
+hdrs = [theme, favicon_headers, full_screen_style, sse_script, canvas_script]
 
 # create the merlin process
 merlin = mp.Process(
@@ -83,58 +184,31 @@ app, rt = fast_app(
 @rt('/')
 def index():
     return Title(app_name), Div(
-        # # Main Image Container - takes all available space
-        # Div(
-        #     Img(src="/static/logo.png", cls="image-fit"),
-        #     id="image-container",
-        #     cls="image-wrapper",
-        #     hx_ext="sse",
-        #     sse_connect="/generate",
-        #     hx_swap="innerHTML",
-        #     sse_swap="message",
-        # ),
 
-        # # Main Image Container - optimize to fill space
-        # Div(
-        #     # The key change is here - add a background-container div
-        #     Div(
-        #         Img(src="/static/logo.png", cls="image-fill"),
-        #         cls="image-background",
-        #     ),
-        #     id="image-container",
-        #     cls="image-wrapper",
-        #     hx_ext="sse",
-        #     sse_connect="/generate",
-        #     hx_swap="innerHTML",
-        #     sse_swap="message",
-        # ),
-
-        # Anchored label
-        DivCentered(
-            FormLabel(app_name, fr="prompt", cls="text-center text-2xl text-primary font-bold"),
-            cls="rounded-lg bg-secondary shadow-md border mb-2 p-2",
-        ),
-
-        # Main Image Container with background-fill effect
+        # Main Canvas Container
         Div(
-            # Background version (blurred and expanded)
-            Div(
-                cls="image-background-fill",
-                id="background-image"
+            # Background canvas for blurred effect
+            Canvas(
+                id="bg-canvas", 
+                cls="canvas-background"
             ),
-            # Foreground version (complete image)
-            Div(
-                Img(src="/static/logo.png", cls="image-fit"),
-                cls="image-foreground",
+            # Foreground canvas for main display
+            Canvas(
+                id="main-canvas", 
+                cls="canvas-main"
             ),
-            id="image-container",
-            cls="image-wrapper",
+            # Initial logo display that will be hidden when canvases are active
+            Img(
+                src="/static/logo.png", 
+                id="initial-logo",
+                cls="initial-image"
+            ),
+            id="canvas-container",
+            cls="canvas-wrapper",
             hx_ext="sse",
-            sse_connect="/generate",
-            hx_swap="innerHTML",
-            sse_swap="message",
+            sse_connect="/generate"
+            # No more innerHTML swap or message swap - we'll handle it in JavaScript
         ),
-
         # Controls Section - fixed height at bottom
         Div(
             # Two-column layout
@@ -195,28 +269,7 @@ async def generate():
         
         if result["type"] == config.RESULT_FRAME:
             encoded_img = result['data']
-            # Create image tag with base64 data
-            # data_uri = f"data:image/jpeg;base64,{encoded_img}"
-            # img = Img(src=data_uri, cls="image-fit")
-            data_uri = f"data:image/jpeg;base64,{encoded_img}"
-            # img_container = Div(
-            #     Img(src=data_uri, cls="image-fill"),
-            #     cls="image-background"
-            # )
-            img_container = Div(
-                # Background version with the same image as CSS background
-                Div(
-                    cls="image-background-fill",
-                    style=f"background-image: url('{data_uri}')",
-                ),
-                # Foreground version showing the complete image
-                Div(
-                    Img(src=data_uri, cls="image-fit"),
-                    cls="image-foreground",
-                )
-            )
-            yield sse_message(img_container)
-            # yield sse_message(img)
+            yield sse_message(encoded_img)
             
         elif result["type"] == config.RESULT_ERROR:
             # Display error message
