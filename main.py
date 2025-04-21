@@ -38,12 +38,19 @@ full_screen_style = Link(rel="stylesheet", href="/static/styles.css")
 sse_script = Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js")
 
 canvas_script = Script("""
-    // Canvas rendering and SSE handling
     document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOM loaded, setting up canvas renderer');
+        
         // Get canvas elements
         const mainCanvas = document.getElementById('main-canvas');
         const bgCanvas = document.getElementById('bg-canvas');
         const initialLogo = document.getElementById('initial-logo');
+        const container = document.getElementById('canvas-container');
+        
+        if (!mainCanvas || !bgCanvas) {
+            console.error('Canvas elements not found');
+            return;
+        }
         
         // Get rendering contexts
         const mainCtx = mainCanvas.getContext('2d');
@@ -51,9 +58,7 @@ canvas_script = Script("""
         
         // Set initial dimensions based on container
         function updateCanvasDimensions() {
-            const container = document.getElementById('canvas-container');
             if (container) {
-                // Set dimensions based on container size for responsive behavior
                 const width = container.clientWidth;
                 const height = container.clientHeight;
                 
@@ -61,6 +66,7 @@ canvas_script = Script("""
                 mainCanvas.height = height;
                 bgCanvas.width = width;
                 bgCanvas.height = height;
+                console.log(`Canvas dimensions updated: ${width}x${height}`);
             }
         }
         
@@ -95,11 +101,25 @@ canvas_script = Script("""
             // Draw the image centered and scaled properly
             ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
         }
+
+        // Set up our own EventSource connection
+        console.log('Creating EventSource connection to /generate');
+        const eventSource = new EventSource('/generate');
         
-        // Listen for SSE events containing image data
-        document.body.addEventListener('sse:message', function(event) {
-            // Get base64 image data from the event
-            const imageData = event.detail.data;
+        eventSource.onopen = function() {
+            console.log('EventSource connection opened');
+        };
+        
+        eventSource.onerror = function(error) {
+            console.error('EventSource error:', error);
+        };
+        
+        // Listen for messages directly
+        eventSource.onmessage = function(event) {
+            console.log('SSE message received:', event);
+            
+            // Get data from the event
+            const imageData = event.data;
             
             // Hide the initial logo once we start receiving images
             if (initialLogo && initialLogo.style.display !== 'none') {
@@ -110,6 +130,7 @@ canvas_script = Script("""
             const img = new Image();
             
             img.onload = function() {
+                console.log('Image loaded, dimensions:', img.width, 'x', img.height);
                 // Use requestAnimationFrame for smooth rendering
                 requestAnimationFrame(() => {
                     // Clear previous canvas content
@@ -133,10 +154,19 @@ canvas_script = Script("""
             
             // Set image source from base64 data
             img.src = 'data:image/jpeg;base64,' + imageData;
+        };
+        
+        // Clean up when page unloads
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                console.log('Closing EventSource connection');
+                eventSource.close();
+            }
         });
+        
+        console.log('Canvas renderer and EventSource setup complete');
     });
 """)
-
 # setup the app headers
 hdrs = [theme, favicon_headers, full_screen_style, sse_script, canvas_script]
 
@@ -203,12 +233,16 @@ def index():
                 id="initial-logo",
                 cls="initial-image"
             ),
+
             id="canvas-container",
             cls="canvas-wrapper",
-            hx_ext="sse",
-            sse_connect="/generate"
+            # hx_ext="sse",
+            # sse_connect="/generate",
+            # hx_swap="none",
+            # sse_swap="message",
             # No more innerHTML swap or message swap - we'll handle it in JavaScript
         ),
+
         # Controls Section - fixed height at bottom
         Div(
             # Two-column layout
@@ -271,21 +305,21 @@ async def generate():
             encoded_img = result['data']
             yield sse_message(encoded_img)
             
-        elif result["type"] == config.RESULT_ERROR:
-            # Display error message
-            error_div = Div(
-                P(f"Error: {result['message']}", cls="text-red-500"),
-                cls="p-4 bg-red-100 rounded"
-            )
-            yield sse_message(error_div)
+        # elif result["type"] == config.RESULT_ERROR:
+        #     # Display error message
+        #     error_div = Div(
+        #         P(f"Error: {result['message']}", cls="text-red-500"),
+        #         cls="p-4 bg-red-100 rounded"
+        #     )
+        #     yield sse_message(error_div)
             
-        elif result["type"] == config.RESULT_STATUS:
-            # Status updates
-            status_div = Div(
-                P(f"Status: {result['status']}", cls="text-blue-500"),
-                cls="p-4 bg-blue-100 rounded"
-            )
-            yield sse_message(status_div)
+        # elif result["type"] == config.RESULT_STATUS:
+        #     # Status updates
+        #     status_div = Div(
+        #         P(f"Status: {result['status']}", cls="text-blue-500"),
+        #         cls="p-4 bg-blue-100 rounded"
+        #     )
+        #     yield sse_message(status_div)
 
 # SSE endpoint
 @rt("/generate")

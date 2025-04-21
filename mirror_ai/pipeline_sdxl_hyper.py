@@ -26,7 +26,7 @@ from .utils import dynamic_quant_filter_fn, conv_filter_fn
 # SET DTYPE
 config.DTYPE = torch.bfloat16
 # SET STEPS
-config.N_STEPS = 3
+config.N_STEPS = 1
 
 
 # small torch speedups for compilation
@@ -337,7 +337,7 @@ class ImagePipeline:
         adapter_conditioning_scale = [1.0, 1.0, 1.0]
         adapter_conditioning_factor = 1.0
 
-        guidance_scale = 0.7
+        guidance_scale = 0.3
 
         try:
             with torch.inference_mode():
