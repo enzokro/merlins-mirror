@@ -69,7 +69,7 @@ def go_merlin(request_queue, result_queue):
                     elif request["type"] == config.REQUEST_SET_PROMPT:
                         current_prompt = request["prompt"]
                         print(f"New prompt: {current_prompt}")
-                        current_prompt += ", people in a room, bright background, clear, coherent, stable, smooth, high quality, pristine"
+                        current_prompt += ", people in a room, colorful, bright background, clear, coherent, stable, smooth"
 
                     # refresh the latents
                     elif request["type"] == config.REQUEST_REFRESH_LATENTS:

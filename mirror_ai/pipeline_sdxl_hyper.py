@@ -18,7 +18,6 @@ from torchao.quantization import swap_conv2d_1x1_to_linear
 from dotenv import load_dotenv
 import os
 from abc import ABC, abstractmethod
-import torchvision.transforms.functional as F
 
 
 from . import config
@@ -27,7 +26,7 @@ from .utils import dynamic_quant_filter_fn, conv_filter_fn
 # SET DTYPE
 config.DTYPE = torch.bfloat16
 # SET STEPS
-config.N_STEPS = 1
+config.N_STEPS = 3
 
 
 # small torch speedups for compilation
@@ -60,6 +59,9 @@ elif DEPTH_MODEL == "depth-midas":
     ADAPTER_REPO_IDS['depth-midas'] = "TencentARC/t2i-adapter-depth-midas-sdxl-1.0"
 elif DEPTH_MODEL == "canny":
     ADAPTER_REPO_IDS['canny'] = "TencentARC/t2i-adapter-canny-sdxl-1.0"
+
+# ugly
+ADAPTER_REPO_IDS['depth-midas'] = "TencentARC/t2i-adapter-depth-midas-sdxl-1.0"
 
 ADAPTER_NAMES = list(ADAPTER_REPO_IDS.keys())
 
@@ -133,12 +135,15 @@ preprocessors_gpu: dict[str, Preprocessor] = {
     # "recolor": RecolorPreprocessor().to(device),
 }
 
-if DEPTH_MODEL == "depth-zoe":
+if DEPTH_MODEL == "canny":
+    preprocessors_gpu['canny'] = CannyPreprocessor().to(device)
+elif DEPTH_MODEL == "depth-zoe":
     preprocessors_gpu['depth-zoe'] = ZoePreprocessor().to(device)
 elif DEPTH_MODEL == "depth-midas":
     preprocessors_gpu['depth-midas'] = MidasPreprocessor().to(device)
-elif DEPTH_MODEL == "canny":
-    preprocessors_gpu['canny'] = CannyPreprocessor().to(device)
+
+# ugly
+preprocessors_gpu['depth-midas'] = MidasPreprocessor().to(device)
 
 def get_preprocessor(adapter_name: str) -> Preprocessor:
     return preprocessors_gpu[adapter_name]
@@ -147,6 +152,7 @@ adapters = MultiAdapter(
     [
         T2IAdapter.from_pretrained(ADAPTER_REPO_IDS['openpose']),
         T2IAdapter.from_pretrained(ADAPTER_REPO_IDS[DEPTH_MODEL]),
+        T2IAdapter.from_pretrained(ADAPTER_REPO_IDS['depth-midas']),
     ]
 )
 adapters = adapters.to(config.DEVICE, dtype=config.DTYPE)
@@ -194,8 +200,8 @@ class ImagePipeline:
         # Configure the Scheduler (CRITICAL for SDXL Lightning)
         # scheduler_name = "DDIM"
         # scheduler_name = "DPMSolverMultistep"
-        # scheduler_name = "LCM"
-        scheduler_name = "TCD"
+        scheduler_name = "LCM"
+        # scheduler_name = "TCD"
         pipeline.scheduler = config.SCHEDULERS[scheduler_name].from_config(
             pipeline.scheduler.config, 
             # timestep_spacing ="trailing",
@@ -257,7 +263,7 @@ class ImagePipeline:
         # Compile the UNet, VAE, and ControlNet
         backend="inductor"
         # print(f"Compiling the models with backend: {backend}")
-        self.pipeline.unet = torch.compile(self.pipeline.unet, backend=backend, mode="max-autotune", fullgraph=True)
+        # self.pipeline.unet = torch.compile(self.pipeline.unet, backend=backend, mode="max-autotune", fullgraph=True)
         # self.pipeline.vae.decode = torch.compile(self.pipeline.vae.decode, backend=backend, mode="max-autotune", fullgraph=True)
         # # Attempt to compile the ControlNet
         # self.pipeline.controlnet[0] = torch.compile(self.pipeline.controlnet[0], backend=backend, mode="max-autotune", fullgraph=True)
@@ -313,11 +319,13 @@ class ImagePipeline:
         # camera_frame = camera_frame.resize((config.RESA_WIDTH, config.RESA_HEIGHT))
 
         # get depth image
-        depth_image = get_preprocessor(DEPTH_MODEL)(camera_frame)#.resize(size)
+        canny_image = get_preprocessor(DEPTH_MODEL)(camera_frame)#.resize(size)
+        depth_image = get_preprocessor('depth-midas')(camera_frame)
         pose_image = get_preprocessor('openpose')(camera_frame)#.resize(size)
 
         control_image = [
             pose_image,
+            canny_image,
             depth_image,
         ]
 
@@ -326,7 +334,7 @@ class ImagePipeline:
         # depth_image.save(f'{IMAGE_DEBUG_PATH}/image_pose_shape_{depth_image.size}.jpg')
 
         ## manual controlnet params
-        adapter_conditioning_scale = [1.0, 1.0]
+        adapter_conditioning_scale = [1.0, 1.0, 1.0]
         adapter_conditioning_factor = 1.0
 
         guidance_scale = 0.7
